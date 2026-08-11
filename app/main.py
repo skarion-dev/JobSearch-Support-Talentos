@@ -90,7 +90,7 @@ with tab_jobs:
         cur = conn.execute(
             """
             SELECT j.title, c.name AS company, j.location, j.remote, j.salary,
-                   j.posted_date, j.job_url, j.scraped_at
+                   j.posted_date, j.job_url, j.scraped_at, j.description
             FROM jobs j JOIN companies c ON c.id = j.company_id
             ORDER BY (j.posted_date IS NULL), j.posted_date DESC, j.scraped_at DESC
             """
@@ -165,3 +165,12 @@ with tab_jobs:
             },
             hide_index=True,
         )
+
+        st.divider()
+        st.subheader("Full job description")
+        options = {f"{r['title']} — {r['company']}": i for i, r in enumerate(filtered)}
+        if options:
+            picked = st.selectbox("Pick a job to read", list(options.keys()))
+            job = filtered[options[picked]]
+            st.caption(f"{job['location'] or 'Location unknown'} · Posted {job['posted_date'] or 'unknown'}")
+            st.write(job.get("description") or "No description captured for this job.")

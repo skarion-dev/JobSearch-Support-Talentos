@@ -4,9 +4,10 @@ stable public JSON APIs, so once we know a company uses one, we never
 need to call an LLM for that company again.
 """
 import re
+import html
 import requests
 
-TIMEOUT = 15
+TIMEOUT = 45
 
 
 def detect_platform(url: str) -> tuple[str, dict] | tuple[None, None]:
@@ -49,9 +50,21 @@ def detect_platform(url: str) -> tuple[str, dict] | tuple[None, None]:
     return None, None
 
 
+def _strip_html(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    text = html.unescape(raw)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)  # entities that were themselves escaped inside tags/attrs
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
+    return text or None
+
+
 def fetch_greenhouse(board_token: str) -> list[dict]:
     resp = requests.get(
         f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs",
+        params={"content": "true"},
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
@@ -64,7 +77,7 @@ def fetch_greenhouse(board_token: str) -> list[dict]:
                 "location": (j.get("location") or {}).get("name"),
                 "job_url": j.get("absolute_url"),
                 "posted_date": (j.get("updated_at") or "")[:10] or None,
-                "description": None,
+                "description": _strip_html(j.get("content")),
                 "remote": None,
                 "salary": None,
             }
@@ -91,7 +104,7 @@ def fetch_lever(company_slug: str) -> list[dict]:
                 "location": (j.get("categories") or {}).get("location"),
                 "job_url": j.get("hostedUrl"),
                 "posted_date": posted_date,
-                "description": None,
+                "description": j.get("descriptionPlain") or _strip_html(j.get("description")),
                 "remote": None,
                 "salary": None,
             }
@@ -137,7 +150,11 @@ def fetch_smartrecruiters(company: str) -> list[dict]:
                 "location": location,
                 "job_url": (j.get("ref") or {}).get("jobAdUrl") or j.get("applyUrl"),
                 "posted_date": (j.get("releasedDate") or "")[:10] or None,
-                "description": None,
+                "description": _strip_html(
+                    ((j.get("jobAd") or {}).get("sections") or {})
+                    .get("jobDescription", {})
+                    .get("text")
+                ),
                 "remote": None,
                 "salary": None,
             }
@@ -161,7 +178,7 @@ def fetch_ashby(board: str) -> list[dict]:
                 "location": j.get("location"),
                 "job_url": j.get("jobUrl"),
                 "posted_date": (j.get("publishedAt") or "")[:10] or None,
-                "description": None,
+                "description": _strip_html(j.get("descriptionHtml")) or j.get("descriptionPlain"),
                 "remote": j.get("isRemote"),
                 "salary": None,
             }
@@ -185,7 +202,7 @@ def fetch_workable(account: str) -> list[dict]:
                 "location": j.get("location"),
                 "job_url": j.get("url"),
                 "posted_date": (j.get("published_on") or "")[:10] or None,
-                "description": None,
+                "description": _strip_html(j.get("description")),
                 "remote": None,
                 "salary": None,
             }
@@ -205,7 +222,7 @@ def fetch_recruitee(company: str) -> list[dict]:
                 "location": j.get("location"),
                 "job_url": j.get("careers_url"),
                 "posted_date": (j.get("created_at") or "")[:10] or None,
-                "description": None,
+                "description": _strip_html(j.get("description")),
                 "remote": j.get("remote"),
                 "salary": None,
             }

@@ -5,11 +5,16 @@ from app.config import LLM_CONFIG
 from app import db
 from app.agents.finder_agent import find_careers_url
 from app.agents.ats_detectors import detect_platform, fetch_with_method
+from app.filters import filter_us_jobs
 
 JOB_SCHEMA_PROMPT = (
-    "Extract every job posting listed on this page. For each job return: title, "
-    "location, remote (true/false), salary (if shown), a short description, the "
-    "direct job_url/link, and posted_date if shown (format YYYY-MM-DD, or null). "
+    "Extract every job posting listed on this page that is located in the USA "
+    "(including US-remote positions). Skip jobs based in other countries. For each "
+    "job return: title, location (include city/state/country, e.g. 'Austin, TX, USA' "
+    "or 'Remote, USA'), remote (true/false), salary (if shown), the FULL job "
+    "description text (all responsibilities, requirements, and qualifications, "
+    "not a summary or truncated snippet), the direct job_url/link, and posted_date "
+    "if shown (format YYYY-MM-DD, or null). "
     "If NO individual job postings are listed on this page (e.g. it's just a careers "
     "landing/overview page), instead find the link to the actual job listings/search "
     "page (labels like 'View Open Positions', 'Search Jobs', 'Open Roles', 'View "
@@ -40,6 +45,11 @@ def _filter_recent(jobs: list[dict]) -> list[dict]:
     return recent
 
 
+def _filter_jobs(jobs: list[dict]) -> list[dict]:
+    """Hardcoded rule: USA-only, posted within the last 10 days."""
+    return filter_us_jobs(_filter_recent(jobs))
+
+
 def _ai_scrape(url: str) -> tuple[list[dict], str | None]:
     graph = SmartScraperGraph(prompt=JOB_SCHEMA_PROMPT, source=url, config=GRAPH_CONFIG)
     result = graph.run()
@@ -49,7 +59,7 @@ def _ai_scrape(url: str) -> tuple[list[dict], str | None]:
 
 
 def _save_result(company_id: int, jobs: list[dict], via: str):
-    recent_jobs = _filter_recent(jobs)
+    recent_jobs = _filter_jobs(jobs)
     db.upsert_jobs(company_id, recent_jobs)
     db.mark_company_status(company_id, "done")
     db.log_scrape_run(company_id, "done", len(recent_jobs))
