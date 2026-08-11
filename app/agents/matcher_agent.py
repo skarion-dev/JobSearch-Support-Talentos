@@ -8,6 +8,7 @@ import json
 import re
 from openai import OpenAI
 from app.config import LLM_CONFIG
+from app.filters import passes_location_gate
 
 BATCH_SIZE = 25
 TOP_MATCH_MIN = 85
@@ -33,15 +34,39 @@ def _rule_max_years(rules_text: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _dedupe(jobs: list[dict]) -> list[dict]:
+    """
+    Collapse the same posting appearing under several keywords. Without this
+    one job can occupy most of a candidate's 50 slots — a DMV candidate's
+    shortlist was 8 copies of one California listing.
+    """
+    seen, out = set(), []
+    for job in jobs:
+        title = re.sub(r"[^a-z0-9]+", " ", (job.get("title") or "").lower()).strip()
+        company = re.sub(r"[^a-z0-9]+", " ", (job.get("company_name") or "").lower()).strip()
+        key = (title, company)
+        if not title or key in seen:
+            continue
+        seen.add(key)
+        out.append(job)
+    return out
+
+
 def prefilter(profile: dict, jobs: list[dict]) -> list[dict]:
-    """Deterministic hard gates: obvious seniority/years mismatches, keyword overlap."""
+    """Deterministic hard gates: location, seniority/years, then keyword overlap."""
     keywords = {k.lower() for k in json.loads(profile.get("keywords") or "[]")}
     rules_text = profile.get("additional_rules") or ""
     max_years = _rule_max_years(rules_text)
     reject_senior = _rule_says_reject_senior(rules_text)
+    gate = profile.get("location_gate")
+
+    jobs = _dedupe(jobs)
 
     survivors = []
     for job in jobs:
+        # Location is a hard gate enforced in code, not left to the model
+        if gate and not passes_location_gate(gate, job.get("location"), job.get("title")):
+            continue
         title = (job.get("title") or "")
         desc = (job.get("description") or "")
         title_lower = title.lower()

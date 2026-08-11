@@ -47,3 +47,60 @@ def is_us_job(location: str | None) -> bool:
 
 def filter_us_jobs(jobs: list[dict]) -> list[dict]:
     return [j for j in jobs if is_us_job(j.get("location"))]
+
+
+# --- regional gates ---------------------------------------------------------
+# A location rule written only into the LLM prompt is not a gate: the model
+# returned 8 California jobs for a DMV-only candidate because "Flex" in the
+# title read as remote. Regional limits are enforced in code instead.
+
+REMOTE_RE = re.compile(r"\bremote\b|\banywhere\b|\bwork from home\b|\bwfh\b", re.IGNORECASE)
+
+# DC / Maryland / Northern Virginia within roughly 100 miles
+DMV_STATES = {"DC", "MD", "VA", "WV", "DE"}
+DMV_CITIES = (
+    "washington", "arlington", "alexandria", "bethesda", "rockville", "fairfax",
+    "reston", "herndon", "tysons", "mclean", "vienna", "annandale", "springfield",
+    "woodbridge", "manassas", "gainesville", "leesburg", "sterling", "ashburn",
+    "silver spring", "gaithersburg", "frederick", "columbia", "baltimore",
+    "annapolis", "bowie", "laurel", "greenbelt", "hyattsville", "college park",
+    "germantown", "waldorf", "jessup", "dulles", "quantico", "fredericksburg",
+    "richmond", "henrico", "chantilly", "centreville", "burke", "lorton",
+    "district of columbia", "prince george", "montgomery county", "loudoun",
+    "anne arundel", "howard county", "fauquier", "stafford", "prince william",
+)
+# Match state codes in their ORIGINAL case. Uppercasing first made "De Pere,
+# Brown County" (Wisconsin) read as Delaware and pass a DMV-only gate.
+# Real state codes are uppercase in these feeds; "De" in a city name is not.
+_STATE_TOKEN = re.compile(r"\b([A-Z]{2})\b")
+
+
+def is_remote(location: str | None, title: str | None = None) -> bool:
+    blob = f"{location or ''} {title or ''}"
+    return bool(REMOTE_RE.search(blob))
+
+
+def in_dmv(location: str | None) -> bool:
+    if not location:
+        return False
+    loc = location.lower()
+    states = set(_STATE_TOKEN.findall(location))   # original case, not uppercased
+    # An explicit non-DMV state disqualifies, even if a city name collides
+    if states and not (states & DMV_STATES):
+        return False
+    if states & DMV_STATES:
+        return True
+    return any(city in loc for city in DMV_CITIES)
+
+
+GATES = {
+    # DMV commute radius, or fully remote
+    "dmv_or_remote": lambda loc, title: in_dmv(loc) or is_remote(loc, title),
+}
+
+
+def passes_location_gate(gate: str | None, location: str | None, title: str | None) -> bool:
+    if not gate:
+        return True
+    fn = GATES.get(gate)
+    return fn(location, title) if fn else True

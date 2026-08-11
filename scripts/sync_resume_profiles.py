@@ -32,6 +32,12 @@ OPERATOR_APPROVES_ALL_NON_TEST = True
 # Per-candidate location constraints set by the operator. These are matching
 # rules, not data from Neon, so they live here rather than being invented from
 # candidate fields (Najiur's location columns are all NULL upstream).
+# Machine-enforced gate key (app/filters.GATES) — the free-text rule below is
+# only advisory context for the model; this is what actually filters.
+LOCATION_GATES = {
+    "Mir Najiur Rahman": "dmv_or_remote",
+}
+
 LOCATION_RULES = {
     "Mir Najiur Rahman": (
         "LOCATION HARD GATE: only accept jobs within a 100-mile radius of the DMV "
@@ -189,8 +195,9 @@ def main():
                     (candidate_id, candidate_name, base_resume_id, base_resume_name,
                      target_roles, work_authorization, visa_status, verified_skills,
                      location_preference, open_to_relocation, keywords, additional_rules,
-                     review_status, generation_status, is_match_ready, is_test_account)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     review_status, generation_status, is_match_ready, is_test_account,
+                     location_gate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(candidate["id"]),
@@ -209,6 +216,7 @@ def main():
                     p.get("generation_status"),
                     1 if ready else 0,
                     1 if is_test_account else 0,
+                    LOCATION_GATES.get(candidate["name"]),
                 ),
             )
 
