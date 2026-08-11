@@ -201,13 +201,35 @@ def upsert_keyword_jobs(keyword: str, jobs: list[dict]) -> int:
     return inserted
 
 
+def set_keyword_job_source_url(job_id: int, source_url: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE keyword_jobs SET source_url = ? WHERE id = ?", (source_url, job_id)
+        )
+
+
+def fetch_keyword_jobs_missing_source(limit: int | None = None) -> list[dict]:
+    query = "SELECT id, title, company_name FROM keyword_jobs WHERE source_url IS NULL"
+    if limit:
+        query += f" LIMIT {int(limit)}"
+    with get_conn() as conn:
+        return [dict(row) for row in conn.execute(query).fetchall()]
+
+
 def keyword_job_stats():
     with get_conn() as conn:
         total = conn.execute("SELECT count(*) FROM keyword_jobs").fetchone()[0]
         keywords_with_hits = conn.execute(
             "SELECT count(DISTINCT keyword) FROM keyword_jobs"
         ).fetchone()[0]
-    return {"total_keyword_jobs": total, "keywords_with_hits": keywords_with_hits}
+        with_source = conn.execute(
+            "SELECT count(*) FROM keyword_jobs WHERE source_url IS NOT NULL"
+        ).fetchone()[0]
+    return {
+        "total_keyword_jobs": total,
+        "keywords_with_hits": keywords_with_hits,
+        "with_source_url": with_source,
+    }
 
 
 def purge_old_jobs(days: int = 10) -> int:

@@ -1,4 +1,5 @@
 .env
+private/
 data/*.db
 __pycache__/
 *.pyc

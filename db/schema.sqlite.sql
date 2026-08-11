@@ -65,11 +65,57 @@ CREATE TABLE IF NOT EXISTS keyword_jobs (
     salary TEXT,
     description TEXT,
     job_url TEXT,
+    source_url TEXT,
     posted_date TEXT,
     scraped_at TEXT DEFAULT (datetime('now')),
     UNIQUE(job_url)
 );
 
+CREATE TABLE IF NOT EXISTS resume_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    candidate_name TEXT,
+    base_resume_id TEXT NOT NULL,
+    base_resume_name TEXT,
+    target_roles TEXT,           -- JSON array
+    work_authorization TEXT,
+    visa_status TEXT,
+    verified_skills TEXT,        -- JSON array
+    location_preference TEXT,
+    open_to_relocation INTEGER,
+    keywords TEXT,               -- JSON array, active (non-dismissed) keywords
+    additional_rules TEXT,       -- free-text hard-gate rules
+    review_status TEXT,
+    generation_status TEXT,
+    is_match_ready INTEGER DEFAULT 0,  -- approved + current profile_version per masterprompt rule 4
+    synced_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(base_resume_id)
+);
+
+CREATE TABLE IF NOT EXISTS resume_job_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    resume_profile_id INTEGER REFERENCES resume_profiles(id) ON DELETE CASCADE,
+    keyword_job_id INTEGER REFERENCES keyword_jobs(id) ON DELETE CASCADE,
+    score INTEGER,
+    band TEXT,                   -- TOP_MATCH | REVIEWABLE_MATCH
+    reason TEXT,
+    matched_terms TEXT,          -- JSON array
+    hard_gate_results TEXT,      -- JSON array
+    run_id TEXT,
+    matched_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(resume_profile_id, keyword_job_id)
+);
+
+CREATE TABLE IF NOT EXISTS match_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT DEFAULT (datetime('now')),
+    finished_at TEXT,
+    profiles_processed INTEGER DEFAULT 0,
+    jobs_considered INTEGER DEFAULT 0,
+    matches_created INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_resume_matches_profile ON resume_job_matches(resume_profile_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_keyword_jobs_keyword ON keyword_jobs(keyword);
 CREATE INDEX IF NOT EXISTS idx_keyword_jobs_posted_date ON keyword_jobs(posted_date);
 

@@ -10,8 +10,8 @@ st.set_page_config(page_title="Talentos JobSearch Support", layout="wide")
 st.title("Talentos JobSearch Support")
 st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by OpenCode Go (deepseek-v4-flash / deepseek-v4-pro)")
 
-tab_chat, tab_scrape, tab_readiness, tab_jobs, tab_keywords = st.tabs(
-    ["CEO Chat", "Scrape Control", "Readiness", "Jobs", "Keyword Jobs"]
+tab_chat, tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches = st.tabs(
+    ["CEO Chat", "Scrape Control", "Readiness", "Jobs", "Keyword Jobs", "Resume Matches"]
 )
 
 if "history" not in st.session_state:
@@ -197,15 +197,20 @@ with tab_keywords:
     )
 
     kstats = db.keyword_job_stats()
-    k1, k2 = st.columns(2)
+    k1, k2, k3 = st.columns(3)
     k1.metric("Total keyword jobs", kstats["total_keyword_jobs"])
     k2.metric("Keywords with hits", kstats["keywords_with_hits"])
+    k3.metric("With direct source link", kstats["with_source_url"])
+    st.caption(
+        "Adzuna's own link is gated behind a login wall, so 'Source link' is found via "
+        "web search (title + company) instead — run `python -m scripts.backfill_source_links` to refresh."
+    )
 
     with db.get_conn() as conn:
         krows = conn.execute(
             """
             SELECT keyword, title, company_name, location, remote, salary,
-                   posted_date, job_url, description, scraped_at
+                   posted_date, job_url, source_url, description, scraped_at
             FROM keyword_jobs
             ORDER BY (posted_date IS NULL), posted_date DESC, scraped_at DESC
             """
@@ -246,7 +251,8 @@ with tab_keywords:
                 "Posted": r["posted_date"] or "Unknown",
                 "Remote": "Yes" if r["remote"] else ("" if r["remote"] is None else "No"),
                 "Salary": r["salary"],
-                "Link": r["job_url"],
+                "Adzuna Link": r["job_url"],
+                "Source Link": r["source_url"],
             }
             for r in kfiltered
         ]
@@ -254,7 +260,10 @@ with tab_keywords:
         st.dataframe(
             kdisplay,
             use_container_width=True,
-            column_config={"Link": st.column_config.LinkColumn("Link", display_text="Open ->")},
+            column_config={
+                "Adzuna Link": st.column_config.LinkColumn("Adzuna Link", display_text="Open ->"),
+                "Source Link": st.column_config.LinkColumn("Source Link", display_text="Open ->"),
+            },
             hide_index=True,
         )
 
@@ -265,3 +274,97 @@ with tab_keywords:
                 "SELECT keyword, count(*) n FROM keyword_jobs GROUP BY keyword ORDER BY n DESC"
             ).fetchall()
         st.dataframe([dict(r) for r in breakdown], use_container_width=True, hide_index=True)
+
+with tab_matches:
+    import json as _json
+
+    st.subheader("Resume-to-job matches (report-only, local, never sent to Talentos)")
+    st.caption(
+        "Each base resume is treated as a separate candidate profile, per the Talentos "
+        "matching masterprompt. Scores use the same rubric (title/role, skills, "
+        "responsibilities, seniority, location, freshness). Run "
+        "`python -m scripts.sync_resume_profiles` to refresh profiles, then "
+        "`python -m scripts.match_resumes_to_jobs` to refresh matches."
+    )
+
+    with db.get_conn() as conn:
+        profiles = [dict(r) for r in conn.execute(
+            "SELECT * FROM resume_profiles ORDER BY candidate_name, base_resume_name"
+        ).fetchall()]
+
+    if not profiles:
+        st.info("No resume profiles synced yet. Run `python -m scripts.sync_resume_profiles`.")
+    else:
+        profile_options = {
+            f"{p['candidate_name']} — {p['base_resume_name']}"
+            + ("" if p["is_match_ready"] else " (needs review)"): p["id"]
+            for p in profiles
+        }
+        picked_label = st.selectbox("Base resume profile", list(profile_options.keys()))
+        profile_id = profile_options[picked_label]
+        profile = next(p for p in profiles if p["id"] == profile_id)
+
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Review status", profile["review_status"] or "unknown")
+        p2.metric("Auto-queue ready", "Yes" if profile["is_match_ready"] else "No")
+        p3.metric("Active keywords", len(_json.loads(profile["keywords"] or "[]")))
+
+        if profile["additional_rules"]:
+            with st.expander("Profile rules"):
+                st.write(profile["additional_rules"])
+
+        with db.get_conn() as conn:
+            match_rows = conn.execute(
+                """
+                SELECT m.score, m.band, m.reason, m.matched_terms, m.matched_at,
+                       j.title, j.company_name, j.location, j.posted_date,
+                       j.job_url, j.source_url, j.description
+                FROM resume_job_matches m
+                JOIN keyword_jobs j ON j.id = m.keyword_job_id
+                WHERE m.resume_profile_id = ?
+                ORDER BY m.score DESC
+                LIMIT 50
+                """,
+                (profile_id,),
+            ).fetchall()
+        match_rows = [dict(r) for r in match_rows]
+
+        if not match_rows:
+            st.info("No matches yet for this profile. Run `python -m scripts.match_resumes_to_jobs`.")
+        else:
+            st.caption(f"Top {len(match_rows)} matches (max 50 per masterprompt cap)")
+            mdisplay = [
+                {
+                    "Score": r["score"],
+                    "Band": r["band"],
+                    "Title": r["title"],
+                    "Company": r["company_name"],
+                    "Location": r["location"],
+                    "Posted": r["posted_date"] or "Unknown",
+                    "Reason": r["reason"],
+                    "Link": r["source_url"] or r["job_url"],
+                }
+                for r in match_rows
+            ]
+            st.dataframe(
+                mdisplay,
+                use_container_width=True,
+                column_config={
+                    "Link": st.column_config.LinkColumn("Link", display_text="Open ->"),
+                    "Score": st.column_config.NumberColumn("Score", width="small"),
+                    "Band": st.column_config.TextColumn("Band", width="small"),
+                },
+                hide_index=True,
+            )
+
+            st.divider()
+            st.subheader("Match detail")
+            job_options = {f"{r['title']} — {r['company_name']} ({r['score']})": i for i, r in enumerate(match_rows)}
+            picked_job = st.selectbox("Pick a match to inspect", list(job_options.keys()))
+            detail = match_rows[job_options[picked_job]]
+            st.write(f"**Reason:** {detail['reason']}")
+            matched_terms = _json.loads(detail["matched_terms"] or "[]")
+            if matched_terms:
+                st.write(f"**Matched terms:** {', '.join(matched_terms)}")
+            st.write("**Job description:**")
+            st.write(detail["description"] or "No description captured.")
