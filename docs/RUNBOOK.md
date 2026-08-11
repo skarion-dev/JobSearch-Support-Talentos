@@ -155,3 +155,55 @@ dropped for months.
 To constrain someone geographically, add a gate in
 `app/filters.py::GATES` and map the candidate to it in
 `scripts/sync_resume_profiles.py::LOCATION_GATES`.
+
+---
+
+## Remote access (Cloudflare Tunnel + Access)
+
+The app runs on the spare PC and is reachable at **https://jobs.skarion.com**.
+
+There is **no inbound port open**. Streamlit binds to `127.0.0.1:3100` only;
+Cloudflare Tunnel makes the outbound connection, so the machine is not
+reachable from the LAN or the internet except through Cloudflare.
+
+### What runs where
+
+| Component | Mechanism | Notes |
+|---|---|---|
+| Streamlit app | Scheduled task `JobSearchApp` (ONSTART) | binds 127.0.0.1 only |
+| Cloudflare Tunnel | Scheduled task `CloudflareTunnel` (ONSTART) | tunnel `jobsearch` |
+| Nightly cycle | Scheduled task `JobSearchNightly` (00:00) | on the main PC |
+
+The tunnel runs as a scheduled task rather than a Windows service. The service
+installer produced a service with no arguments and would not retain a binPath
+override; scheduled tasks were already proven on this host, so that path was
+taken instead.
+
+### Granting someone access
+
+1. Cloudflare dashboard → **Zero Trust → Access → Applications**
+2. Add a self-hosted application for `jobs.skarion.com`
+3. Add a policy allowing specific emails, or `@skarion.com` as a domain rule
+4. They visit the URL, authenticate with Cloudflare, and are in
+
+**Every authenticated user can push to production Talentos.** There is no
+read-only role. The Access allowlist is the authorisation boundary — keep it
+tight. Pushes are attributed to the signed-in email in `created_by`,
+`updated_by`, and the application event text.
+
+If someone reaches the app without an Access session, the sidebar shows an
+"Unauthenticated" warning so a misconfigured deployment is visible rather than
+silently open.
+
+### Checking it is healthy
+
+```bash
+curl -o /dev/null -w "%{http_code}\n" https://jobs.skarion.com   # expect 200
+ssh saki-@192.168.1.193 "cloudflared tunnel info jobsearch"      # expect connectors listed
+```
+
+If it returns 530, the tunnel has no active connector — restart the task:
+
+```bash
+ssh saki-@192.168.1.193 "schtasks /Run /TN CloudflareTunnel"
+```
