@@ -263,7 +263,9 @@ def render():
                    if m["local_job_id"] in job_ids and m["candidate_name"] == candidate]
         with st.spinner(f"Pushing {len(payload)} to Talentos…"):
             try:
-                stats, _ = push(payload, commit=True, ae_user_id=ae["user_id"])
+                from app.auth import actor_label
+                stats, _ = push(payload, commit=True, ae_user_id=ae["user_id"],
+                                actor=actor_label())
                 st.success(
                     f"Assigned {stats.get('will_create_application', 0)} to {ae['name']}. "
                     f"Reused {stats.get('job_reuse', 0)} existing jobs, "

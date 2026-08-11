@@ -7,6 +7,9 @@ from app.agents.scraper_agent import scrape_company
 from scripts.daily_scrape import run_aggregator_pass
 
 st.set_page_config(page_title="Talentos JobSearch Support", layout="wide")
+
+from app.auth import render_identity_badge
+_user = render_identity_badge()
 st.title("Talentos JobSearch Support")
 st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by OpenCode Go (deepseek-v4-flash / deepseek-v4-pro)")
 

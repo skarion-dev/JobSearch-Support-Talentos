@@ -130,7 +130,8 @@ def idem_key(candidate_id: str, job_key: str) -> str:
     return "jss_" + hashlib.sha256(f"{candidate_id}:{job_key}".encode()).hexdigest()[:32]
 
 
-def push(matches: list[dict], commit: bool, ae_user_id: str | None = None):
+def push(matches: list[dict], commit: bool, ae_user_id: str | None = None,
+         actor: str | None = None):
     with psycopg.connect(NEON_DB_URL) as conn:
         with conn.cursor() as cur:
             if ae_user_id:
@@ -261,7 +262,7 @@ def push(matches: list[dict], commit: bool, ae_user_id: str | None = None):
                         p["base_resume_id"],
                         ae_id, ae_name,
                         ae_id, ae_name,
-                        key, SOURCE_LABEL, SOURCE_LABEL,
+                        key, actor or SOURCE_LABEL, actor or SOURCE_LABEL,
                     ),
                 )
                 row = cur.fetchone()
@@ -274,7 +275,8 @@ def push(matches: list[dict], commit: bool, ae_user_id: str | None = None):
                 cur.execute(
                     "INSERT INTO application_events (application_id, to_status, note) VALUES (%s,%s,%s)",
                     (app_id, "assigned",
-                     f"Auto-matched from JobSearch Support (score {p['score']}, {p['band']}). {p['reason'][:200]}"),
+                     f"Auto-matched from JobSearch Support by {actor or SOURCE_LABEL} "
+                     f"(score {p['score']}, {p['band']}). {p['reason'][:180]}"),
                 )
                 created["events"] += 1
 
