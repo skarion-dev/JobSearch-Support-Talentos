@@ -16,6 +16,19 @@ import psycopg
 from app import db
 from app.config import NEON_DB_URL
 
+# Masterprompt section 5: test accounts are active in the snapshot but excluded
+# from production runs unless the operator explicitly includes them.
+TEST_ACCOUNTS = {"Test Istiaque", "akash"}
+
+# Operator directive (2026-08-11): treat every base resume belonging to the six
+# real active candidates as approved for MATCHING purposes, overriding the
+# review_status/profile_version gate from masterprompt rule 4.
+#
+# This only affects local scoring and the report. It does NOT authorize any
+# write to Talentos — the push path is still gated on a per-match human
+# approval (see docs/PIPELINE_PLAN.md, Step 0).
+OPERATOR_APPROVES_ALL_NON_TEST = True
+
 CANDIDATES_QUERY = """
 SELECT id, name, status, target_roles, preferred_locations, work_authorization,
        visa_status, verified_skills, location_preference, open_to_relocation
@@ -80,11 +93,15 @@ def main():
             else:
                 active_keywords = list(p.get("keywords") or [])
 
-            # Only auto-match-ready per masterprompt rule 4
+            is_test_account = candidate["name"] in TEST_ACCOUNTS
+
+            # Masterprompt rule 4 gate, unless the operator has overridden it.
             ready = (
                 p.get("review_status") == "approved"
                 and p.get("approved_profile_version") == p.get("profile_version")
             )
+            if OPERATOR_APPROVES_ALL_NON_TEST and not is_test_account:
+                ready = True
 
             conn.execute(
                 """
@@ -92,8 +109,8 @@ def main():
                     (candidate_id, candidate_name, base_resume_id, base_resume_name,
                      target_roles, work_authorization, visa_status, verified_skills,
                      location_preference, open_to_relocation, keywords, additional_rules,
-                     review_status, generation_status, is_match_ready)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     review_status, generation_status, is_match_ready, is_test_account)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(candidate["id"]),
@@ -111,6 +128,7 @@ def main():
                     p.get("review_status"),
                     p.get("generation_status"),
                     1 if ready else 0,
+                    1 if is_test_account else 0,
                 ),
             )
 

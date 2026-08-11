@@ -201,10 +201,15 @@ recommendation is traceable to a run, score, rule outcome, and profile version.
   (company list, resume profiles) and writes locally.
 - **Never bulk-load the discovery pool.** Only jobs backing an approved match
   cross over (Step 0). The local corpus stays local.
-- Only profiles that are `review_status='approved'` with
-  `approved_profile_version = profile_version` may auto-queue. Currently **1 of
-  21** profiles meets that bar; the rest are report-only by design.
-- Test/demo accounts are excluded from production runs unless explicitly named.
+- Profile approval: masterprompt rule 4 restricts auto-queue to
+  `review_status='approved'` with a current `profile_version`. **Operator
+  directive 2026-08-11 overrides this for matching**: all 19 base resumes
+  belonging to the 6 real active candidates are treated as approved
+  (`OPERATOR_APPROVES_ALL_NON_TEST` in `scripts/sync_resume_profiles.py`).
+  This affects local scoring only — it does not authorize any Talentos write,
+  which still requires per-match human approval (Step 0).
+- Test/demo accounts (`Test Istiaque`, `akash`) are flagged `is_test_account`
+  and excluded from production runs unless `--include-test` is passed.
 - Re-runs must be idempotent: no duplicate applications, no resurrecting a
   manager-dismissed keyword or a rejected job.
 
