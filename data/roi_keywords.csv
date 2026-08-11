@@ -1,0 +1,251 @@
+keyword,roi_score,status,jobs,matched,top_matches,profiles_served
+Fiber Design Technician,412.0,measured,1,1,6,6
+Fiber Optic Design Engineer,204.0,measured,1,1,2,2
+Pole Attachment Designer,204.0,measured,1,1,2,2
+AutoCAD Drafter,200.0,measured,45,27,63,7
+CAD Drafter,193.6,measured,54,27,48,9
+civil drafter,181.3,measured,6,4,10,4
+Permit Drafter,180.0,measured,5,3,9,4
+Civil CAD Drafter,156.9,measured,9,5,12,4
+OSP Engineering Technician,152.0,measured,2,2,2,1
+Solar PV Design Engineer,152.0,measured,1,1,1,1
+Broadband Network Engineer,144.0,measured,2,2,1,2
+2D drafting,126.8,measured,63,11,21,8
+OSP Field Engineer,121.7,measured,7,4,5,3
+Civil CAD Technician,116.5,measured,8,5,6,2
+Joint Use Designer,116.0,measured,4,2,3,3
+GIS Analyst,112.0,measured,20,10,13,3
+Mechanical Drafter,104.9,measured,42,9,12,6
+OSP Engineer,93.3,measured,30,12,13,3
+NESC,89.9,measured,310,13,13,7
+Data Center Technician,86.4,measured,50,28,23,1
+OSP Designer,86.4,measured,27,10,9,3
+Xrefs,85.0,measured,16,2,5,5
+Outside Plant Engineer,84.1,measured,27,9,10,3
+Joint Use Engineer,84.0,measured,6,2,4,2
+ASIC Design Engineer,81.6,measured,27,14,12,1
+ArcGIS Field Maps,78.1,measured,27,9,14,2
+CAD Technician,77.1,measured,83,9,13,5
+AutoCAD 3D,76.1,measured,306,9,9,6
+GIS Technician,76.0,measured,36,10,11,3
+AutoCAD,75.6,measured,307,8,8,6
+Design Drafter,70.8,measured,146,11,12,5
+PV Design Engineer,70.7,measured,9,3,3,2
+RTL Design Engineer,69.3,measured,22,11,4,1
+CAD Detailer,68.9,measured,164,9,14,5
+Civil Design Technician,68.0,measured,5,2,2,1
+ArcGIS Online,67.4,measured,35,10,13,2
+Enterprise Geodatabase,66.0,measured,20,6,6,2
+Network Engineer,63.9,measured,316,9,8,5
+Fabrication Drawings,63.2,measured,169,3,6,5
+CAD Designer,62.8,measured,185,4,3,5
+FPGA Design Engineer,60.7,measured,23,10,3,1
+Make Ready Designer,60.0,measured,5,1,2,2
+Drafting Technician,59.2,measured,41,3,4,4
+Cartographer,59.0,measured,12,3,3,2
+Geospatial Analyst,58.9,measured,14,2,3,3
+Civil 3D Technician,58.7,measured,3,1,1,1
+Mechanical CAD Technician,58.7,untried,0,0,0,0
+GIS Basemaps,58.3,untried,0,0,0,0
+ISP Backbone,58.0,untried,0,0,0,0
+Aerial Fiber Design Engineer,57.6,untried,0,0,0,0
+As-Built CAD Technician,57.6,untried,0,0,0,0
+As-Built Drafter,57.5,untried,0,0,0,0
+Broadband Design Engineer,57.4,untried,0,0,0,0
+CAD Conversion Technician,57.4,untried,0,0,0,0
+CAD Production Technician,57.2,untried,0,0,0,0
+CAD QA/QC Technician,57.2,untried,0,0,0,0
+CAD Standards Technician,57.2,untried,0,0,0,0
+Construction-Ready Fiber Designer,56.9,untried,0,0,0,0
+DWG Technician,56.7,untried,0,0,0,0
+Fiber As-Built Technician,56.6,untried,0,0,0,0
+Fiber CAD Drafter,56.5,untried,0,0,0,0
+Fiber Network Planner,56.3,untried,0,0,0,0
+Fiber Permitting Engineer,56.2,untried,0,0,0,0
+Fiber QA/QC Technician,56.2,untried,0,0,0,0
+Fiber Quantity Estimator,56.2,untried,0,0,0,0
+Fiber Route Planner,56.1,untried,0,0,0,0
+Field Verification Technician,56.1,untried,0,0,0,0
+Infrastructure CAD Technician,55.9,untried,0,0,0,0
+Infrastructure Drafter,55.8,untried,0,0,0,0
+Material Takeoff Technician,55.6,untried,0,0,0,0
+Municipal CAD Technician,55.6,untried,0,0,0,0
+OSP CAD Drafter,55.5,untried,0,0,0,0
+OSP CAD Technician,55.5,untried,0,0,0,0
+OSP Documentation Specialist,55.4,untried,0,0,0,0
+OSP Estimator,55.4,untried,0,0,0,0
+OSP Planning Engineer,55.3,untried,0,0,0,0
+OSP QC Engineer,55.2,untried,0,0,0,0
+Permit Plan Drafter,55.0,untried,0,0,0,0
+Plan and Profile Drafter,55.0,untried,0,0,0,0
+Plan Set Drafter,54.9,untried,0,0,0,0
+Quantity Takeoff Technician,54.8,untried,0,0,0,0
+Redline Drafter,54.7,untried,0,0,0,0
+ROW Permit Technician,54.7,untried,0,0,0,0
+Technical Drawing Specialist,54.5,untried,0,0,0,0
+Telecom CAD Technician,54.5,untried,0,0,0,0
+Telecom Design Technician,54.4,untried,0,0,0,0
+Telecom Drafter,54.4,untried,0,0,0,0
+Telecom GIS Analyst,54.3,untried,0,0,0,0
+Utility GIS Technician,54.2,untried,0,0,0,0
+ISP Network Engineer,54.0,untried,0,0,0,0
+"Team Lead, IP Data Network",53.8,untried,0,0,0,0
+Drawing Checker,53.4,untried,0,0,0,0
+Shading Analysis,53.0,untried,0,0,0,0
+duct bank design,52.4,untried,0,0,0,0
+Georeferenced Data,52.3,untried,0,0,0,0
+georeferenced drawings,52.3,untried,0,0,0,0
+GIS basemap,52.2,untried,0,0,0,0
+SolidWorks,51.9,measured,301,8,9,4
+spatial accuracy,51.7,untried,0,0,0,0
+Spine-Leaf Architecture,51.7,untried,0,0,0,0
+splitter layout,51.6,untried,0,0,0,0
+Solar Designer,51.5,measured,173,4,5,4
+IS-IS,51.1,untried,0,0,0,0
+automation project engineer,50.7,untried,0,0,0,0
+Bentley MicroStation Technician,50.6,untried,0,0,0,0
+Bluebeam Technician,50.6,untried,0,0,0,0
+Broadband Network Designer,50.5,untried,0,0,0,0
+Cartographic Technician,50.4,untried,0,0,0,0
+Civil 3D Drafter,50.3,untried,0,0,0,0
+Civil Infrastructure Drafter,50.2,untried,0,0,0,0
+Colocation Technician,50.2,untried,0,0,0,0
+Fiber Design Engineer,47.8,measured,16,3,2,2
+IT Infrastructure Technician,47.0,measured,4,1,1,1
+ModelBuilder,47.0,measured,8,2,2,1
+ArcGIS,45.1,measured,46,3,3,3
+Material Take-Offs,44.5,measured,142,33,33,1
+CAD Operator,42.7,measured,105,5,5,3
+pole attachment,41.8,measured,18,2,3,2
+Permit Design Engineer,41.5,measured,83,3,4,3
+CAD Design Engineer,40.9,measured,114,4,4,3
+3D Modeling,40.5,measured,156,5,5,3
+CAD standards,40.1,measured,245,6,10,3
+1:32 splitter,40.0,untried,0,0,0,0
+24x7 NOC Monitoring,40.0,untried,0,0,0,0
+2D Drafting,40.0,untried,0,0,0,0
+2D Technical Drawing,40.0,untried,0,0,0,0
+3D drafting,40.0,untried,0,0,0,0
+3D Solid Modeling,40.0,untried,0,0,0,0
+65 nm CMOS,40.0,untried,0,0,0,0
+Aerial & Underground Design,40.0,untried,0,0,0,0
+Aerial and Underground Fiber,40.0,untried,0,0,0,0
+aerial and underground layouts,40.0,untried,0,0,0,0
+Aerial Imagery,40.0,untried,0,0,0,0
+aerial layouts,40.0,untried,0,0,0,0
+aerial plant,40.0,untried,0,0,0,0
+AHJ Permit Requirements,40.0,untried,0,0,0,0
+alignment plans,40.0,untried,0,0,0,0
+annotation standards,40.0,untried,0,0,0,0
+ArcGIS Experience Builder,40.0,untried,0,0,0,0
+as-built documentation,40.0,untried,0,0,0,0
+Assembly Layouts,40.0,untried,0,0,0,0
+Attribute Rules,40.0,untried,0,0,0,0
+Aurora Solar,40.0,untried,0,0,0,0
+Authority Having Jurisdiction (AHJ),40.0,untried,0,0,0,0
+AutoCAD 2024,40.0,untried,0,0,0,0
+AutoCAD Civil 3D,40.0,untried,0,0,0,0
+AutoCAD drafting,40.0,untried,0,0,0,0
+AXI Interfaces,40.0,untried,0,0,0,0
+Balance of System (BOS),40.0,untried,0,0,0,0
+Bentley MicroStation,40.0,untried,0,0,0,0
+BICSI Standards,40.0,untried,0,0,0,0
+Bill of Materials,40.0,untried,0,0,0,0
+Bill of Quantities (BOQ),40.0,untried,0,0,0,0
+BIOS/Firmware,40.0,untried,0,0,0,0
+Bluebeam,40.0,untried,0,0,0,0
+Bluebeam Revu,40.0,untried,0,0,0,0
+Blueprint Reading,40.0,untried,0,0,0,0
+Board Bring-Up,40.0,untried,0,0,0,0
+BOM Generation,40.0,untried,0,0,0,0
+BOQ/BOM,40.0,untried,0,0,0,0
+bore path,40.0,untried,0,0,0,0
+Bore Path Design,40.0,untried,0,0,0,0
+bore path drawings,40.0,untried,0,0,0,0
+Bore Paths,40.0,untried,0,0,0,0
+BRAM,40.0,untried,0,0,0,0
+Broadband Delivery,40.0,untried,0,0,0,0
+broadband network design,40.0,untried,0,0,0,0
+C/C++ HLS,40.0,untried,0,0,0,0
+C/RTL Co-simulation,40.0,untried,0,0,0,0
+CAD Backchecking,40.0,untried,0,0,0,0
+CAD block library,40.0,untried,0,0,0,0
+CAD Standards,40.0,untried,0,0,0,0
+CAD template standardization,40.0,untried,0,0,0,0
+CAD templates,40.0,untried,0,0,0,0
+Cadence Virtuoso,40.0,untried,0,0,0,0
+Carport Solar,40.0,untried,0,0,0,0
+Carrier-grade network,40.0,untried,0,0,0,0
+CCNP Enterprise,40.0,untried,0,0,0,0
+CGNAT,40.0,untried,0,0,0,0
+Change Control,40.0,untried,0,0,0,0
+Change Management,40.0,untried,0,0,0,0
+change tracking,40.0,untried,0,0,0,0
+Cisco IOS,40.0,untried,0,0,0,0
+Cisco IOS/XE/XR,40.0,untried,0,0,0,0
+Cisco NX-OS,40.0,untried,0,0,0,0
+CNN Accelerator,40.0,untried,0,0,0,0
+Commercial & Industrial Solar,40.0,untried,0,0,0,0
+Conduit & Handhole Layouts,40.0,untried,0,0,0,0
+conduit alignment,40.0,untried,0,0,0,0
+conduit drawings,40.0,untried,0,0,0,0
+conduit footage,40.0,untried,0,0,0,0
+conduit footage estimating,40.0,untried,0,0,0,0
+Conduit Layout,40.0,untried,0,0,0,0
+Conduit Layouts,40.0,untried,0,0,0,0
+Conduit Routing,40.0,untried,0,0,0,0
+configuration documentation,40.0,untried,0,0,0,0
+Constructability Review,40.0,untried,0,0,0,0
+Construction Drawings,40.0,untried,0,0,0,0
+Construction Sets,40.0,untried,0,0,0,0
+construction-ready documentation,40.0,untried,0,0,0,0
+construction-ready drawings,40.0,untried,0,0,0,0
+continuous improvement,40.0,untried,0,0,0,0
+Coordinate Systems & Projections,40.0,untried,0,0,0,0
+cost awareness,40.0,untried,0,0,0,0
+cost estimating,40.0,untried,0,0,0,0
+Creo,40.0,untried,0,0,0,0
+Cross-Connect,40.0,untried,0,0,0,0
+cross-functional coordination,40.0,untried,0,0,0,0
+Custom IC Design,40.0,untried,0,0,0,0
+Customer Circuit Provisioning,40.0,untried,0,0,0,0
+Dashboards,40.0,untried,0,0,0,0
+Data Center Engineer,40.0,untried,0,0,0,0
+Data Center Operations,40.0,untried,0,0,0,0
+Data QA/QC,40.0,untried,0,0,0,0
+Data Sanitization,40.0,untried,0,0,0,0
+DC/AC Ratio Optimization,40.0,untried,0,0,0,0
+DCIM,40.0,untried,0,0,0,0
+Dell PowerEdge,40.0,untried,0,0,0,0
+design documentation,40.0,untried,0,0,0,0
+design lifecycle,40.0,untried,0,0,0,0
+detail drawings,40.0,untried,0,0,0,0
+Digitization,40.0,untried,0,0,0,0
+directional bore,40.0,untried,0,0,0,0
+Distribution Engineer,40.0,untried,0,0,0,0
+DMS,40.0,untried,0,0,0,0
+Document Control Engineer,40.0,untried,0,0,0,0
+Document Management Systems,40.0,untried,0,0,0,0
+drawing production,40.0,untried,0,0,0,0
+Drawing QA/QC,40.0,untried,0,0,0,0
+drawing review,40.0,untried,0,0,0,0
+Drawing Revision Control,40.0,untried,0,0,0,0
+drawing set,40.0,untried,0,0,0,0
+DRC,40.0,untried,0,0,0,0
+duct bank,40.0,untried,0,0,0,0
+duct bank drawings,40.0,untried,0,0,0,0
+Duct Banks,40.0,untried,0,0,0,0
+Duct-Bank Layouts,40.0,untried,0,0,0,0
+DWG control,40.0,untried,0,0,0,0
+DWG file control,40.0,untried,0,0,0,0
+ECN,40.0,untried,0,0,0,0
+ECO,40.0,untried,0,0,0,0
+Electrical CAD Technician,40.0,untried,0,0,0,0
+Embedded C,40.0,untried,0,0,0,0
+Embedded Hardware Design Intern,40.0,untried,0,0,0,0
+Energy Production Modeling,40.0,untried,0,0,0,0
+Energy Yield Estimation,40.0,untried,0,0,0,0
+Engineering Associate,40.0,untried,0,0,0,0
+Engineering Change Coordinator,40.0,untried,0,0,0,0
+Engineering Coordinator,40.0,untried,0,0,0,0
+Engineering Documentation Specialist,40.0,untried,0,0,0,0

@@ -25,7 +25,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("keyword_search")
 
 KEYWORD_SOURCES = {
-    # Ranked by relevance to the 19 ACTIVE base-resume profiles (preferred)
+    # Ranked by MEASURED matches-per-API-call (preferred; see rank_keyword_roi.py)
+    "roi": os.path.join(os.path.dirname(__file__), "..", "data", "roi_keywords.csv"),
+    # Ranked by overlap with the 19 ACTIVE base-resume profiles
     "profile": os.path.join(os.path.dirname(__file__), "..", "data", "profile_keywords.csv"),
     # Raw historical export, ranked by occurrence across all sources
     "export": os.path.join(os.path.dirname(__file__), "..", "data", "keywords.csv"),
@@ -65,7 +67,7 @@ def _search_one(keyword: str, max_days_old: int, max_pages: int, call_budget: in
     return keyword, inserted, calls_made
 
 
-def main(top_n: int, days: int, workers: int, max_pages: int, call_budget: int, source: str = "profile"):
+def main(top_n: int, days: int, workers: int, max_pages: int, call_budget: int, source: str = "roi"):
     keywords = load_top_keywords(top_n, source=source)
     log.info(f"Keyword source: {source} ({KEYWORD_SOURCES[source]})")
     log.info(
@@ -95,8 +97,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-pages", type=int, default=3, help="Max pages to paginate per keyword")
     parser.add_argument("--call-budget", type=int, default=250, help="Total Adzuna API calls allowed this run")
     parser.add_argument(
-        "--source", choices=["profile", "export"], default="profile",
-        help="profile = ranked against the 19 active base resumes (default); export = raw historical list",
+        "--source", choices=["roi", "profile", "export"], default="roi",
+        help="roi = measured matches-per-call (default); profile = active-resume overlap; export = raw historical",
     )
     args = parser.parse_args()
     main(
