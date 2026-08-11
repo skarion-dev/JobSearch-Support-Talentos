@@ -43,6 +43,25 @@ def fetch_page(page: int, max_days_old: int = 10) -> list[dict]:
     return resp.json().get("results", [])
 
 
+def fetch_by_keyword(keyword: str, page: int = 1, max_days_old: int = 3) -> list[dict]:
+    """Search Adzuna for a specific keyword (job title/skill), not a bulk date browse."""
+    if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
+        raise RuntimeError("ADZUNA_APP_ID / ADZUNA_APP_KEY not set in .env")
+
+    params = {
+        "app_id": ADZUNA_APP_ID,
+        "app_key": ADZUNA_APP_KEY,
+        "results_per_page": RESULTS_PER_PAGE,
+        "what": keyword,
+        "sort_by": "date",
+        "max_days_old": max_days_old,
+        "content-type": "application/json",
+    }
+    resp = requests.get(f"{BASE_URL}/{page}", params=params, timeout=20)
+    resp.raise_for_status()
+    return resp.json().get("results", [])
+
+
 def to_job(result: dict) -> dict:
     company_name = (result.get("company") or {}).get("display_name")
     location = (result.get("location") or {}).get("display_name")

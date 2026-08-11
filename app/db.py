@@ -175,6 +175,41 @@ def readiness_stats():
     }
 
 
+def upsert_keyword_jobs(keyword: str, jobs: list[dict]) -> int:
+    inserted = 0
+    with get_conn() as conn:
+        for job in jobs:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO keyword_jobs
+                    (keyword, title, company_name, location, remote, salary, description, job_url, posted_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    keyword,
+                    job.get("title"),
+                    job.get("company_name"),
+                    job.get("location"),
+                    1 if job.get("remote") else 0,
+                    job.get("salary"),
+                    job.get("description"),
+                    job.get("job_url"),
+                    job.get("posted_date"),
+                ),
+            )
+            inserted += cur.rowcount
+    return inserted
+
+
+def keyword_job_stats():
+    with get_conn() as conn:
+        total = conn.execute("SELECT count(*) FROM keyword_jobs").fetchone()[0]
+        keywords_with_hits = conn.execute(
+            "SELECT count(DISTINCT keyword) FROM keyword_jobs"
+        ).fetchone()[0]
+    return {"total_keyword_jobs": total, "keywords_with_hits": keywords_with_hits}
+
+
 def purge_old_jobs(days: int = 10) -> int:
     """Delete jobs older than the retention window (posted_date known and stale)."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()

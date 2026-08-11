@@ -55,6 +55,24 @@ CREATE TABLE IF NOT EXISTS daily_runs (
     jobs_found INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS keyword_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT NOT NULL,
+    title TEXT NOT NULL,
+    company_name TEXT,
+    location TEXT,
+    remote INTEGER,
+    salary TEXT,
+    description TEXT,
+    job_url TEXT,
+    posted_date TEXT,
+    scraped_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(job_url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_keyword_jobs_keyword ON keyword_jobs(keyword);
+CREATE INDEX IF NOT EXISTS idx_keyword_jobs_posted_date ON keyword_jobs(posted_date);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_posted_date ON jobs(posted_date);
 CREATE INDEX IF NOT EXISTS idx_companies_status ON companies(scrape_status);
