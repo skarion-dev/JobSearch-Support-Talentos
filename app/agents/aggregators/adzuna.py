@@ -62,6 +62,22 @@ def fetch_by_keyword(keyword: str, page: int = 1, max_days_old: int = 3) -> list
     return resp.json().get("results", [])
 
 
+def fetch_by_keyword_all(keyword: str, max_days_old: int = 3, max_pages: int = 5) -> tuple[list[dict], int]:
+    """
+    Paginate through all results for a keyword (up to max_pages), stopping early
+    once a page returns fewer than a full page of results. Returns (results, calls_made).
+    """
+    all_results = []
+    calls_made = 0
+    for page in range(1, max_pages + 1):
+        results = fetch_by_keyword(keyword, page=page, max_days_old=max_days_old)
+        calls_made += 1
+        all_results.extend(results)
+        if len(results) < RESULTS_PER_PAGE:
+            break
+    return all_results, calls_made
+
+
 def to_job(result: dict) -> dict:
     company_name = (result.get("company") or {}).get("display_name")
     location = (result.get("location") or {}).get("display_name")

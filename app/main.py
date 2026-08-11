@@ -10,7 +10,9 @@ st.set_page_config(page_title="Talentos JobSearch Support", layout="wide")
 st.title("Talentos JobSearch Support")
 st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by OpenCode Go (deepseek-v4-flash / deepseek-v4-pro)")
 
-tab_chat, tab_scrape, tab_readiness, tab_jobs = st.tabs(["CEO Chat", "Scrape Control", "Readiness", "Jobs"])
+tab_chat, tab_scrape, tab_readiness, tab_jobs, tab_keywords = st.tabs(
+    ["CEO Chat", "Scrape Control", "Readiness", "Jobs", "Keyword Jobs"]
+)
 
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -186,3 +188,80 @@ with tab_jobs:
             job = filtered[options[picked]]
             st.caption(f"{job['location'] or 'Location unknown'} · Posted {job['posted_date'] or 'unknown'}")
             st.write(job.get("description") or "No description captured for this job.")
+
+with tab_keywords:
+    st.subheader("Keyword-driven job search (USA-wide, Talentos keyword export)")
+    st.caption(
+        "Searched from data/keywords.csv via Adzuna, independent of the company list above. "
+        "Run `python -m scripts.keyword_search` to refresh."
+    )
+
+    kstats = db.keyword_job_stats()
+    k1, k2 = st.columns(2)
+    k1.metric("Total keyword jobs", kstats["total_keyword_jobs"])
+    k2.metric("Keywords with hits", kstats["keywords_with_hits"])
+
+    with db.get_conn() as conn:
+        krows = conn.execute(
+            """
+            SELECT keyword, title, company_name, location, remote, salary,
+                   posted_date, job_url, description, scraped_at
+            FROM keyword_jobs
+            ORDER BY (posted_date IS NULL), posted_date DESC, scraped_at DESC
+            """
+        ).fetchall()
+        all_keywords = [r["keyword"] for r in conn.execute(
+            "SELECT DISTINCT keyword FROM keyword_jobs ORDER BY keyword"
+        ).fetchall()]
+
+    krows = [dict(r) for r in krows]
+
+    if not krows:
+        st.info("No keyword jobs yet. Run scripts.keyword_search first.")
+    else:
+        kc1, kc2 = st.columns([1, 2])
+        with kc1:
+            keyword_filter = st.multiselect("Filter by keyword", all_keywords)
+        with kc2:
+            ksearch = st.text_input("Search title or company", key="kw_search")
+
+        kfiltered = krows
+        if keyword_filter:
+            kfiltered = [r for r in kfiltered if r["keyword"] in keyword_filter]
+        if ksearch:
+            s = ksearch.lower()
+            kfiltered = [
+                r for r in kfiltered
+                if s in (r["title"] or "").lower() or s in (r["company_name"] or "").lower()
+            ]
+
+        st.caption(f"{len(kfiltered)} of {len(krows)} jobs")
+
+        kdisplay = [
+            {
+                "Keyword": r["keyword"],
+                "Title": r["title"],
+                "Company": r["company_name"],
+                "Location": r["location"],
+                "Posted": r["posted_date"] or "Unknown",
+                "Remote": "Yes" if r["remote"] else ("" if r["remote"] is None else "No"),
+                "Salary": r["salary"],
+                "Link": r["job_url"],
+            }
+            for r in kfiltered
+        ]
+
+        st.dataframe(
+            kdisplay,
+            use_container_width=True,
+            column_config={"Link": st.column_config.LinkColumn("Link", display_text="Open ->")},
+            hide_index=True,
+        )
+
+        st.divider()
+        st.subheader("Keyword hit-rate breakdown")
+        with db.get_conn() as conn:
+            breakdown = conn.execute(
+                "SELECT keyword, count(*) n FROM keyword_jobs GROUP BY keyword ORDER BY n DESC"
+            ).fetchall()
+        st.dataframe([dict(r) for r in breakdown], use_container_width=True, hide_index=True)

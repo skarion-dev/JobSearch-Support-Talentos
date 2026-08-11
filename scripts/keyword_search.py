@@ -1,25 +1,33 @@
 """
 Search Adzuna for the top N job-search keywords (from data/keywords.csv,
 ranked by occurrence count), across the entire USA, within the last N days.
-Not tied to the companies table — general keyword-driven job discovery.
+Fully paginates each keyword (up to --max-pages) instead of capping at 50
+results. Not tied to the companies table — general keyword-driven job
+discovery, stored locally in keyword_jobs.
 
-Adzuna's free tier caps at 250 calls/day, so keep top_n * pages_per_keyword <= 250.
+Adzuna's free tier caps at 250 calls/day. This script stops issuing new
+calls once --call-budget is reached (default 250) — already-inflight
+keywords finish, but no new ones start.
 
-Run: python -m scripts.keyword_search --top 250 --days 3 --workers 20
+Run: python -m scripts.keyword_search --top 250 --days 3 --workers 20 --max-pages 3
 """
 import argparse
 import csv
 import logging
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app import db
-from app.agents.aggregators.adzuna import fetch_by_keyword, to_job
+from app.agents.aggregators.adzuna import fetch_by_keyword_all, to_job
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("keyword_search")
 
 KEYWORDS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "keywords.csv")
+
+_call_lock = threading.Lock()
+_calls_used = 0
 
 
 def load_top_keywords(n: int) -> list[str]:
@@ -31,31 +39,48 @@ def load_top_keywords(n: int) -> list[str]:
     return keywords[:n]
 
 
-def _search_one(keyword: str, max_days_old: int) -> tuple[str, int]:
+def _search_one(keyword: str, max_days_old: int, max_pages: int, call_budget: int) -> tuple[str, int, int]:
+    global _calls_used
+    with _call_lock:
+        if _calls_used >= call_budget:
+            return keyword, 0, 0
+        remaining = call_budget - _calls_used
+
     try:
-        results = fetch_by_keyword(keyword, max_days_old=max_days_old)
+        results, calls_made = fetch_by_keyword_all(
+            keyword, max_days_old=max_days_old, max_pages=min(max_pages, remaining)
+        )
     except Exception as e:
         log.warning(f"{keyword}: FAILED {e}")
-        return keyword, 0
+        return keyword, 0, 1
+
+    with _call_lock:
+        _calls_used += calls_made
 
     jobs = [to_job(r) for r in results]
     inserted = db.upsert_keyword_jobs(keyword, jobs)
-    return keyword, inserted
+    return keyword, inserted, calls_made
 
 
-def main(top_n: int, days: int, workers: int):
+def main(top_n: int, days: int, workers: int, max_pages: int, call_budget: int):
     keywords = load_top_keywords(top_n)
-    log.info(f"Searching {len(keywords)} keywords, last {days} days, {workers} parallel workers")
+    log.info(
+        f"Searching {len(keywords)} keywords, last {days} days, {workers} workers, "
+        f"up to {max_pages} pages/keyword, call budget {call_budget}"
+    )
 
     total_inserted = 0
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_search_one, kw, days): kw for kw in keywords}
+        futures = {
+            executor.submit(_search_one, kw, days, max_pages, call_budget): kw for kw in keywords
+        }
         for future in as_completed(futures):
-            keyword, inserted = future.result()
+            keyword, inserted, calls = future.result()
             total_inserted += inserted
-            log.info(f"{keyword}: {inserted} new jobs")
+            if calls:
+                log.info(f"{keyword}: {inserted} new jobs ({calls} calls)")
 
-    log.info(f"Done. {total_inserted} new jobs across {len(keywords)} keywords")
+    log.info(f"Done. {total_inserted} new jobs, {_calls_used} Adzuna calls used")
 
 
 if __name__ == "__main__":
@@ -63,5 +88,7 @@ if __name__ == "__main__":
     parser.add_argument("--top", type=int, default=250, help="Number of top keywords to search")
     parser.add_argument("--days", type=int, default=3, help="Max days old for postings")
     parser.add_argument("--workers", type=int, default=20, help="Concurrent search workers")
+    parser.add_argument("--max-pages", type=int, default=3, help="Max pages to paginate per keyword")
+    parser.add_argument("--call-budget", type=int, default=250, help="Total Adzuna API calls allowed this run")
     args = parser.parse_args()
-    main(top_n=args.top, days=args.days, workers=args.workers)
+    main(top_n=args.top, days=args.days, workers=args.workers, max_pages=args.max_pages, call_budget=args.call_budget)
