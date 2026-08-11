@@ -1,18 +1,27 @@
 """
-Run the resume-to-job matcher across all synced resume profiles against
-recently-captured keyword_jobs. Report-only: writes only to local
-resume_job_matches (never to Talentos). Meant to run after each daily
-keyword_search/scrape pass ("suggested logs after everyday jobs are captured").
+Run the resume-to-job matcher across all active base-resume profiles.
+Report-only: writes to local resume_job_matches, never to Talentos.
 
-Run: python -m scripts.match_resumes_to_jobs --top 50 --workers 6
+Parallelism model
+-----------------
+Work is flattened to (profile, job-batch) units before dispatch, so
+concurrency is NOT capped by the number of profiles. 19 profiles x ~10
+batches each = ~190 independent LLM calls, which can run 100-wide.
+
+Each completed batch is persisted immediately, so a timeout or crash never
+loses finished work — re-run with --skip-done to continue.
+
+Run: python -m scripts.match_resumes_to_jobs --workers 100
 """
 import argparse
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
 
 from app import db
-from app.agents.matcher_agent import match_profile
+from app.agents.matcher_agent import prefilter, score_batch, BATCH_SIZE
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("match_resumes")
@@ -42,8 +51,9 @@ def load_recent_jobs(days: int) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def _run_one_profile(profile: dict, jobs: list[dict], top_n: int, run_id: str) -> tuple[str, int]:
-    matches = match_profile(profile, jobs, top_n=top_n)
+def persist(profile_id: int, matches: list[dict], run_id: str) -> int:
+    if not matches:
+        return 0
     with db.get_conn() as conn:
         for m in matches:
             conn.execute(
@@ -57,55 +67,97 @@ def _run_one_profile(profile: dict, jobs: list[dict], top_n: int, run_id: str) -
                     matched_at = datetime('now')
                 """,
                 (
-                    profile["id"], m["job_id"], m["score"], m["band"], m["reason"],
+                    profile_id, m["job_id"], m["score"], m["band"], m["reason"],
                     json.dumps(m["matched_terms"]), run_id,
                 ),
             )
-    return profile["base_resume_name"], len(matches)
+    return len(matches)
 
 
-def main(top_n: int, days: int, workers: int, include_test: bool = False, skip_done: bool = False):
+def trim_to_top_n(profile_id: int, top_n: int):
+    """Enforce the per-profile cap after all batches land (masterprompt rule 11)."""
+    with db.get_conn() as conn:
+        conn.execute(
+            """
+            DELETE FROM resume_job_matches
+            WHERE resume_profile_id = ?
+              AND id NOT IN (
+                SELECT id FROM resume_job_matches
+                WHERE resume_profile_id = ?
+                ORDER BY score DESC, id ASC
+                LIMIT ?
+              )
+            """,
+            (profile_id, profile_id, top_n),
+        )
+
+
+def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: bool, pool_size: int):
     profiles = load_profiles(include_test=include_test)
 
     if skip_done:
         with db.get_conn() as conn:
-            done = {
-                r[0] for r in conn.execute(
-                    "SELECT DISTINCT resume_profile_id FROM resume_job_matches"
-                ).fetchall()
-            }
+            done = {r[0] for r in conn.execute(
+                "SELECT DISTINCT resume_profile_id FROM resume_job_matches"
+            ).fetchall()}
         before = len(profiles)
         profiles = [p for p in profiles if p["id"] not in done]
-        log.info(f"Skipping {before - len(profiles)} profiles that already have matches")
+        log.info(f"--skip-done: skipping {before - len(profiles)} already-matched profiles")
+
+    if not profiles:
+        log.info("Nothing to do.")
+        return
 
     jobs = load_recent_jobs(days)
-    log.info(f"Matching {len(profiles)} resume profiles against {len(jobs)} recent jobs (last {days} days)")
-
-    import time
     run_id = f"run_{int(time.time())}"
+    log.info(f"{len(profiles)} profiles x {len(jobs)} jobs | run_id={run_id}")
 
-    total_matches = 0
+    # Flatten to (profile, batch) work units so concurrency isn't profile-bound
+    units = []
+    for p in profiles:
+        candidates = prefilter(p, jobs)[:pool_size]
+        for i in range(0, len(candidates), BATCH_SIZE):
+            units.append((p, candidates[i : i + BATCH_SIZE]))
+
+    log.info(f"Dispatching {len(units)} batches across {workers} workers")
+
+    done_counts = defaultdict(int)
+    completed = 0
+    t0 = time.time()
+
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(_run_one_profile, p, jobs, top_n, run_id): p for p in profiles
-        }
+        futures = {executor.submit(score_batch, p, batch): p for p, batch in units}
         for future in as_completed(futures):
-            name, count = future.result()
-            total_matches += count
-            log.info(f"{name}: {count} matches")
+            profile = futures[future]
+            try:
+                matches = future.result()
+            except Exception as e:
+                log.warning(f"batch failed for {profile['base_resume_name']}: {e}")
+                matches = []
+            done_counts[profile["id"]] += persist(profile["id"], matches, run_id)
+            completed += 1
+            if completed % 25 == 0:
+                rate = completed / max(time.time() - t0, 1)
+                log.info(f"  {completed}/{len(units)} batches | {rate:.1f}/s")
 
-    log.info(f"Done. {total_matches} total matches across {len(profiles)} profiles (run_id={run_id})")
+    for p in profiles:
+        trim_to_top_n(p["id"], top_n)
+        log.info(f"{p['candidate_name']} / {p['base_resume_name']}: {min(done_counts[p['id']], top_n)} kept")
+
+    elapsed = time.time() - t0
+    log.info(f"Done in {elapsed:.0f}s. {len(units)} batches, run_id={run_id}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--top", type=int, default=50, help="Max matches per profile (masterprompt cap)")
-    parser.add_argument("--days", type=int, default=10, help="Only consider jobs captured in the last N days")
-    parser.add_argument("--workers", type=int, default=6, help="Concurrent profiles processed in parallel")
-    parser.add_argument("--include-test", action="store_true", help="Include test accounts (excluded by default)")
-    parser.add_argument("--skip-done", action="store_true", help="Skip profiles that already have matches (resumable)")
+    parser.add_argument("--top", type=int, default=50, help="Max matches kept per profile")
+    parser.add_argument("--days", type=int, default=10, help="Only jobs captured in the last N days")
+    parser.add_argument("--workers", type=int, default=100, help="Parallel LLM batch workers")
+    parser.add_argument("--pool-size", type=int, default=250, help="Jobs per profile after prefilter")
+    parser.add_argument("--include-test", action="store_true")
+    parser.add_argument("--skip-done", action="store_true")
     args = parser.parse_args()
     main(
         top_n=args.top, days=args.days, workers=args.workers,
-        include_test=args.include_test, skip_done=args.skip_done,
+        include_test=args.include_test, skip_done=args.skip_done, pool_size=args.pool_size,
     )

@@ -5,11 +5,73 @@ bulk from Adzuna and match each posting's employer name against our
 companies table. One API call surfaces postings for many companies at once.
 """
 import re
+import threading
 import requests
-from app.config import ADZUNA_APP_ID, ADZUNA_APP_KEY
+from app.config import ADZUNA_APP_ID, ADZUNA_APP_KEY, ADZUNA_ACCOUNTS
 
 BASE_URL = "https://api.adzuna.com/v1/api/jobs/us/search"
 RESULTS_PER_PAGE = 50
+
+# --- credential rotation ---------------------------------------------------
+# Adzuna's free tier is ~250 calls/account/day. When an account starts
+# returning 429, retire it for this process and move to the next one.
+_cred_lock = threading.Lock()
+_cred_index = 0
+_exhausted: set[int] = set()
+
+
+def _current_creds() -> tuple[str, str]:
+    with _cred_lock:
+        if not ADZUNA_ACCOUNTS:
+            raise RuntimeError("No ADZUNA_APP_ID / ADZUNA_APP_KEY configured in .env")
+        return ADZUNA_ACCOUNTS[_cred_index]
+
+
+def _retire_current(idx: int) -> bool:
+    """Mark the account exhausted and advance. Returns True if another remains."""
+    global _cred_index
+    with _cred_lock:
+        _exhausted.add(idx)
+        for i in range(len(ADZUNA_ACCOUNTS)):
+            if i not in _exhausted:
+                _cred_index = i
+                return True
+        return False
+
+
+def _get(page: int, extra_params: dict) -> list[dict]:
+    """GET a search page, rotating credentials on quota exhaustion."""
+    while True:
+        with _cred_lock:
+            idx = _cred_index
+        app_id, app_key = _current_creds()
+
+        params = {
+            "app_id": app_id,
+            "app_key": app_key,
+            "results_per_page": RESULTS_PER_PAGE,
+            "sort_by": "date",
+            "content-type": "application/json",
+            **extra_params,
+        }
+        resp = requests.get(f"{BASE_URL}/{page}", params=params, timeout=20)
+
+        if resp.status_code in (429, 403):
+            if _retire_current(idx):
+                continue  # retry immediately on the next account
+            resp.raise_for_status()
+
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+
+
+def credential_status() -> dict:
+    with _cred_lock:
+        return {
+            "accounts_configured": len(ADZUNA_ACCOUNTS),
+            "active_index": _cred_index,
+            "exhausted": sorted(_exhausted),
+        }
 
 _SUFFIXES = re.compile(
     r"\b(inc|llc|corp|corporation|co|ltd|company|group|holdings|plc|llp|the)\b\.?",
@@ -27,39 +89,12 @@ def normalize_company_name(name: str | None) -> str:
 
 
 def fetch_page(page: int, max_days_old: int = 10) -> list[dict]:
-    if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
-        raise RuntimeError("ADZUNA_APP_ID / ADZUNA_APP_KEY not set in .env")
-
-    params = {
-        "app_id": ADZUNA_APP_ID,
-        "app_key": ADZUNA_APP_KEY,
-        "results_per_page": RESULTS_PER_PAGE,
-        "sort_by": "date",
-        "max_days_old": max_days_old,
-        "content-type": "application/json",
-    }
-    resp = requests.get(f"{BASE_URL}/{page}", params=params, timeout=20)
-    resp.raise_for_status()
-    return resp.json().get("results", [])
+    return _get(page, {"max_days_old": max_days_old})
 
 
 def fetch_by_keyword(keyword: str, page: int = 1, max_days_old: int = 3) -> list[dict]:
     """Search Adzuna for a specific keyword (job title/skill), not a bulk date browse."""
-    if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
-        raise RuntimeError("ADZUNA_APP_ID / ADZUNA_APP_KEY not set in .env")
-
-    params = {
-        "app_id": ADZUNA_APP_ID,
-        "app_key": ADZUNA_APP_KEY,
-        "results_per_page": RESULTS_PER_PAGE,
-        "what": keyword,
-        "sort_by": "date",
-        "max_days_old": max_days_old,
-        "content-type": "application/json",
-    }
-    resp = requests.get(f"{BASE_URL}/{page}", params=params, timeout=20)
-    resp.raise_for_status()
-    return resp.json().get("results", [])
+    return _get(page, {"what": keyword, "max_days_old": max_days_old})
 
 
 def fetch_by_keyword_all(keyword: str, max_days_old: int = 3, max_pages: int = 5) -> tuple[list[dict], int]:

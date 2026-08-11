@@ -18,6 +18,14 @@ NEON_DB_URL = os.getenv("NEON_DB_URL", "")
 ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID", "")
 ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY", "")
 
+# Ordered credential pool — the client rotates to the next account when one
+# is exhausted (429) so a daily quota doesn't halt a run.
+ADZUNA_ACCOUNTS = [
+    (os.getenv(f"ADZUNA_APP_ID{sfx}", ""), os.getenv(f"ADZUNA_APP_KEY{sfx}", ""))
+    for sfx in ("", "_2", "_3")
+]
+ADZUNA_ACCOUNTS = [(i, k) for i, k in ADZUNA_ACCOUNTS if i and k]
+
 LLM_CONFIG = {
     "api_key": OPENCODE_API_KEY,
     "model": f"openai/{SCRAPER_MODEL}",

@@ -24,18 +24,21 @@ from app.agents.aggregators.adzuna import fetch_by_keyword_all, to_job
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("keyword_search")
 
-KEYWORDS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "keywords.csv")
+KEYWORD_SOURCES = {
+    # Ranked by relevance to the 19 ACTIVE base-resume profiles (preferred)
+    "profile": os.path.join(os.path.dirname(__file__), "..", "data", "profile_keywords.csv"),
+    # Raw historical export, ranked by occurrence across all sources
+    "export": os.path.join(os.path.dirname(__file__), "..", "data", "keywords.csv"),
+}
 
 _call_lock = threading.Lock()
 _calls_used = 0
 
 
-def load_top_keywords(n: int) -> list[str]:
-    keywords = []
-    with open(KEYWORDS_PATH, encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            keywords.append(row["keyword"])
+def load_top_keywords(n: int, source: str = "profile") -> list[str]:
+    path = KEYWORD_SOURCES[source]
+    with open(path, encoding="utf-8") as f:
+        keywords = [row["keyword"] for row in csv.DictReader(f)]
     return keywords[:n]
 
 
@@ -62,8 +65,9 @@ def _search_one(keyword: str, max_days_old: int, max_pages: int, call_budget: in
     return keyword, inserted, calls_made
 
 
-def main(top_n: int, days: int, workers: int, max_pages: int, call_budget: int):
-    keywords = load_top_keywords(top_n)
+def main(top_n: int, days: int, workers: int, max_pages: int, call_budget: int, source: str = "profile"):
+    keywords = load_top_keywords(top_n, source=source)
+    log.info(f"Keyword source: {source} ({KEYWORD_SOURCES[source]})")
     log.info(
         f"Searching {len(keywords)} keywords, last {days} days, {workers} workers, "
         f"up to {max_pages} pages/keyword, call budget {call_budget}"
@@ -90,5 +94,12 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=20, help="Concurrent search workers")
     parser.add_argument("--max-pages", type=int, default=3, help="Max pages to paginate per keyword")
     parser.add_argument("--call-budget", type=int, default=250, help="Total Adzuna API calls allowed this run")
+    parser.add_argument(
+        "--source", choices=["profile", "export"], default="profile",
+        help="profile = ranked against the 19 active base resumes (default); export = raw historical list",
+    )
     args = parser.parse_args()
-    main(top_n=args.top, days=args.days, workers=args.workers, max_pages=args.max_pages, call_budget=args.call_budget)
+    main(
+        top_n=args.top, days=args.days, workers=args.workers,
+        max_pages=args.max_pages, call_budget=args.call_budget, source=args.source,
+    )

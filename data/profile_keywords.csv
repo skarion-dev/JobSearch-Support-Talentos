@@ -1,0 +1,251 @@
+keyword,score,profile_count,candidate_count,is_role_like
+AutoCAD,915,9,3,0
+CAD Technician,665,6,4,1
+Mechanical Drafter,655,6,3,1
+AutoCAD 2D,640,6,4,0
+construction drawings,630,6,3,0
+As-Built Drawings,620,6,2,0
+NESC,615,6,3,0
+BOM,605,6,2,0
+BOQ,605,6,2,0
+AutoCAD Drafter,565,5,4,1
+CAD Designer,565,5,4,1
+CAD Drafter,555,5,3,1
+AutoCAD 3D,530,5,3,0
+FTTH,495,5,1,0
+OSP Engineer,455,4,3,1
+Fiber Design Technician,445,4,2,1
+OSP Designer,445,4,2,1
+Permit Drafter,445,4,2,1
+Bill of Materials (BOM),430,4,3,0
+2D drafting,420,4,2,0
+CAD standards,420,4,2,0
+drawing QA/QC,420,4,2,0
+layer management,420,4,2,0
+Revit,415,4,3,0
+SolidWorks,415,4,3,0
+HLD,395,4,1,0
+LLD,395,4,1,0
+OSP Design Engineer,355,3,3,1
+Telecommunications Engineer,355,3,3,1
+Design Documentation Specialist,345,3,2,1
+GIS Analyst,345,3,2,1
+GIS Mapping Technician,345,3,2,1
+GIS Technician,345,3,2,1
+Mechanical CAD Technician,345,3,2,1
+OSP CAD Designer,345,3,2,1
+Mechanical Designer,335,3,1,1
+Network Engineer,335,3,1,1
+Spatial Manager,335,3,1,1
+3D Modeling,330,3,3,0
+Permit Packages,330,3,3,0
+Redline Markups,330,3,3,0
+bill of materials,320,3,2,0
+Civil 3D,320,3,2,0
+GIS Basemaps,320,3,2,0
+permit drawings,320,3,2,0
+Revision Control,320,3,2,0
+technical drawings,320,3,2,0
+DFM,315,3,3,0
+GD&T,315,3,3,0
+ISP Backbone,310,3,1,0
+material takeoff,310,3,1,0
+procurement planning,310,3,1,0
+ArcPy,305,3,2,0
+MicroStation,305,3,2,0
+OSP,305,3,2,0
+QGIS,305,3,2,0
+BGP,295,3,1,0
+FTTx,295,3,1,0
+MPLS,295,3,1,0
+Xrefs,295,3,1,0
+Aerial Fiber Design Engineer,245,2,2,1
+As-Built CAD Technician,245,2,2,1
+As-Built Drafter,245,2,2,1
+AutoCAD Technician,245,2,2,1
+BIM/CAD Technician,245,2,2,1
+Broadband Design Engineer,245,2,2,1
+CAD Conversion Technician,245,2,2,1
+CAD Data Technician,245,2,2,1
+CAD Operator,245,2,2,1
+CAD Production Technician,245,2,2,1
+CAD QA/QC Technician,245,2,2,1
+CAD Standards Technician,245,2,2,1
+Civil CAD Drafter,245,2,2,1
+Civil CAD Technician,245,2,2,1
+Civil Design Technician,245,2,2,1
+Civil Designer,245,2,2,1
+Construction Documents Drafter,245,2,2,1
+Construction Drafter,245,2,2,1
+Construction-Ready Fiber Designer,245,2,2,1
+Design Drafter,245,2,2,1
+Document Control Coordinator,245,2,2,1
+Drafting Coordinator,245,2,2,1
+Drafting Technician,245,2,2,1
+DWG Technician,245,2,2,1
+Engineering CAD Technician,245,2,2,1
+Engineering Technician CAD,245,2,2,1
+Fiber As-Built Technician,245,2,2,1
+Fiber CAD Drafter,245,2,2,1
+Fiber Construction Coordinator,245,2,2,1
+Fiber Design Engineer,245,2,2,1
+Fiber Engineering Technician,245,2,2,1
+Fiber Infrastructure Designer,245,2,2,1
+Fiber Network Planner,245,2,2,1
+Fiber Optic Design Engineer,245,2,2,1
+Fiber Permitting Engineer,245,2,2,1
+Fiber QA/QC Technician,245,2,2,1
+Fiber Quantity Estimator,245,2,2,1
+Fiber Route Planner,245,2,2,1
+Field Verification Technician,245,2,2,1
+FTTH Design Engineer,245,2,2,1
+Geospatial Analyst,245,2,2,1
+GIS Specialist,245,2,2,1
+GIS/CAD Technician,245,2,2,1
+Infrastructure CAD Technician,245,2,2,1
+Infrastructure Drafter,245,2,2,1
+Joint Use Designer,245,2,2,1
+Joint Use Engineer,245,2,2,1
+Junior CAD Designer,245,2,2,1
+Make Ready Designer,245,2,2,1
+Make Ready Engineer,245,2,2,1
+Material Takeoff Technician,245,2,2,1
+Municipal CAD Technician,245,2,2,1
+OSP CAD Drafter,245,2,2,1
+OSP CAD Technician,245,2,2,1
+OSP Documentation Specialist,245,2,2,1
+OSP Engineering Technician,245,2,2,1
+OSP Estimator,245,2,2,1
+OSP Field Engineer,245,2,2,1
+OSP Planning Engineer,245,2,2,1
+OSP Project Engineer,245,2,2,1
+OSP QC Engineer,245,2,2,1
+Outside Plant Designer,245,2,2,1
+Outside Plant Engineer,245,2,2,1
+Permit Design Engineer,245,2,2,1
+Permit Plan Drafter,245,2,2,1
+Plan and Profile Drafter,245,2,2,1
+Plan Production Drafter,245,2,2,1
+Plan Set Drafter,245,2,2,1
+Pole Attachment Designer,245,2,2,1
+PV Design Engineer,245,2,2,1
+PV Designer,245,2,2,1
+Quantity Takeoff Technician,245,2,2,1
+Redline Drafter,245,2,2,1
+ROW Permit Technician,245,2,2,1
+Solar Design Engineer,245,2,2,1
+Solar Designer,245,2,2,1
+Survey CAD Technician,245,2,2,1
+Technical Drawing Specialist,245,2,2,1
+Telecom CAD Technician,245,2,2,1
+Telecom Design Engineer,245,2,2,1
+Telecom Design Technician,245,2,2,1
+Telecom Drafter,245,2,2,1
+Telecom GIS Analyst,245,2,2,1
+Telecom Permit Coordinator,245,2,2,1
+Utility CAD Technician,245,2,2,1
+Utility GIS Technician,245,2,2,1
+Utility Mapping Technician,245,2,2,1
+Design Engineer,235,2,1,1
+IP Network Engineer,235,2,1,1
+ISP Network Engineer,235,2,1,1
+Mapping Technician,235,2,1,1
+Mechanical Design Engineer,235,2,1,1
+Network Operations Engineer,235,2,1,1
+NOC Engineer,235,2,1,1
+"Team Lead, IP Data Network",225,2,1,1
+Aerial & Underground Fiber,220,2,2,0
+ANSI Y14.5,220,2,2,0
+ArcGIS Field Maps,220,2,2,0
+ArcGIS Online,220,2,2,0
+ArcGIS Pro,220,2,2,0
+Assembly Drawings,220,2,2,0
+CAD Detailer,220,2,2,0
+Conductor Sizing,220,2,2,0
+Design for Manufacturability,220,2,2,0
+Design Review,220,2,2,0
+Drawing Checker,220,2,2,0
+Enterprise Geodatabase,220,2,2,0
+Fabrication Drawings,220,2,2,0
+fiber optic design,220,2,2,0
+Floor Plans,220,2,2,0
+IEEE 1547,220,2,2,0
+Overcurrent Protection,220,2,2,0
+Parcel Mapping,220,2,2,0
+Pole Attachments,220,2,2,0
+Residential Solar,220,2,2,0
+Shading Analysis,220,2,2,0
+Spatial Analysis,220,2,2,0
+utility permitting,220,2,2,0
+Web Maps,220,2,2,0
+as-built conversion,210,2,1,0
+bill of quantities,210,2,1,0
+CCIE Enterprise Infrastructure,210,2,1,0
+CCNP Data Center,210,2,1,0
+Cisco ACI,210,2,1,0
+Cisco ASA,210,2,1,0
+conduit design,210,2,1,0
+Data Center Networking,210,2,1,0
+Document Control,210,2,1,0
+DOT compliance,210,2,1,0
+drafting standards,210,2,1,0
+duct bank design,210,2,1,0
+field sketches,210,2,1,0
+Georeferenced Data,210,2,1,0
+georeferenced drawings,210,2,1,0
+GIS basemap,210,2,1,0
+IP Transit,210,2,1,0
+L2/L3 VPN,210,2,1,0
+Material Take-Offs,210,2,1,0
+NESC Standards,210,2,1,0
+NOC Operations,210,2,1,0
+Palo Alto,210,2,1,0
+permit package,210,2,1,0
+plan production,210,2,1,0
+quantity estimating,210,2,1,0
+redline integration,210,2,1,0
+Right-of-Way (ROW),210,2,1,0
+Site Plans,210,2,1,0
+spatial accuracy,210,2,1,0
+Spine-Leaf Architecture,210,2,1,0
+splice matrix,210,2,1,0
+splitter layout,210,2,1,0
+Voltage Drop Calculation,210,2,1,0
+waste factor,210,2,1,0
+HelioScope,205,2,2,0
+Inventor,205,2,2,0
+ModelBuilder,205,2,2,0
+PVsyst,205,2,2,0
+QA/QC,205,2,2,0
+Schematics,205,2,2,0
+DMVPN,195,2,1,0
+DWG,195,2,1,0
+EVPN,195,2,1,0
+IS-IS,195,2,1,0
+JNCIA-SEC,195,2,1,0
+OSPF,195,2,1,0
+ServiceNow,195,2,1,0
+SketchUp,195,2,1,0
+SolarWinds,195,2,1,0
+VXLAN,195,2,1,0
+XGS-PON,195,2,1,0
+Applications Engineer,135,1,1,1
+ASIC Design Engineer,135,1,1,1
+AutoCAD Designer,135,1,1,1
+automation project engineer,135,1,1,1
+Backbone Engineer,135,1,1,1
+Bentley MicroStation Technician,135,1,1,1
+Bluebeam Technician,135,1,1,1
+Broadband Network Designer,135,1,1,1
+Cable Route Designer,135,1,1,1
+CAD Design Engineer,135,1,1,1
+CAD Engineer,135,1,1,1
+Cartographic Technician,135,1,1,1
+CCIE Network Engineer,135,1,1,1
+Civil 3D Drafter,135,1,1,1
+Civil 3D Technician,135,1,1,1
+Civil Infrastructure Drafter,135,1,1,1
+Colocation Technician,135,1,1,1
+Configuration Management Coordinator,135,1,1,1
+Construction Project Engineer,135,1,1,1
+controls project engineer,135,1,1,1
