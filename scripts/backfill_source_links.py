@@ -22,9 +22,10 @@ def _process_one(row: dict) -> tuple[int, str | None]:
     return row["id"], url
 
 
-def main(limit: int | None, workers: int):
-    rows = db.fetch_keyword_jobs_missing_source(limit=limit)
-    log.info(f"Backfilling source_url for {len(rows)} jobs, {workers} parallel workers")
+def main(limit: int | None, workers: int, matched_only: bool = True):
+    rows = db.fetch_keyword_jobs_missing_source(limit=limit, matched_only=matched_only)
+    scope = "matched jobs only" if matched_only else "ENTIRE corpus"
+    log.info(f"Backfilling source_url for {len(rows)} jobs ({scope}), {workers} workers")
 
     found = 0
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -40,6 +41,7 @@ def main(limit: int | None, workers: int):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="Max jobs to process")
-    parser.add_argument("--workers", type=int, default=20, help="Concurrent search workers")
+    parser.add_argument("--workers", type=int, default=6, help="Concurrent search workers (a global throttle paces them)")
+    parser.add_argument("--all", action="store_true", help="Enrich the whole corpus instead of just matched jobs")
     args = parser.parse_args()
-    main(limit=args.limit, workers=args.workers)
+    main(limit=args.limit, workers=args.workers, matched_only=not args.all)

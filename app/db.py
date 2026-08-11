@@ -208,8 +208,15 @@ def set_keyword_job_source_url(job_id: int, source_url: str):
         )
 
 
-def fetch_keyword_jobs_missing_source(limit: int | None = None) -> list[dict]:
+def fetch_keyword_jobs_missing_source(limit: int | None = None, matched_only: bool = False) -> list[dict]:
+    """
+    matched_only: restrict to jobs that actually matched a candidate profile.
+    That is the only set worth enriching — it is ~600 jobs rather than ~18k,
+    which is what makes polite, rate-limit-respecting search viable.
+    """
     query = "SELECT id, title, company_name FROM keyword_jobs WHERE source_url IS NULL"
+    if matched_only:
+        query += " AND id IN (SELECT DISTINCT keyword_job_id FROM resume_job_matches)"
     if limit:
         query += f" LIMIT {int(limit)}"
     with get_conn() as conn:
