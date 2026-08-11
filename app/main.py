@@ -10,9 +10,13 @@ st.set_page_config(page_title="Talentos JobSearch Support", layout="wide")
 st.title("Talentos JobSearch Support")
 st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by OpenCode Go (deepseek-v4-flash / deepseek-v4-pro)")
 
-tab_chat, tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches = st.tabs(
-    ["CEO Chat", "Scrape Control", "Readiness", "Jobs", "Keyword Jobs", "Resume Matches"]
+tab_review, tab_chat, tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches = st.tabs(
+    ["Review & Assign", "CEO Chat", "Scrape Control", "Readiness", "Jobs", "Keyword Jobs", "Resume Matches"]
 )
+
+with tab_review:
+    from app.review_tab import render as render_review
+    render_review()
 
 if "history" not in st.session_state:
     st.session_state.history = []

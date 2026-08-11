@@ -130,16 +130,22 @@ def idem_key(candidate_id: str, job_key: str) -> str:
     return "jss_" + hashlib.sha256(f"{candidate_id}:{job_key}".encode()).hexdigest()[:32]
 
 
-def push(matches: list[dict], commit: bool):
+def push(matches: list[dict], commit: bool, ae_user_id: str | None = None):
     with psycopg.connect(NEON_DB_URL) as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT user_id, display_name, role, is_active FROM profiles WHERE lower(email)=%s",
-                (AE_EMAIL,),
-            )
+            if ae_user_id:
+                cur.execute(
+                    "SELECT user_id, display_name, role, is_active FROM profiles WHERE user_id=%s",
+                    (ae_user_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT user_id, display_name, role, is_active FROM profiles WHERE lower(email)=%s",
+                    (AE_EMAIL,),
+                )
             ae = cur.fetchone()
             if not ae or not ae[3]:
-                raise SystemExit(f"AE {AE_EMAIL} not found or inactive")
+                raise SystemExit(f"Assignee {ae_user_id or AE_EMAIL} not found or inactive")
             ae_id, ae_name, ae_role = ae[0], ae[1], ae[2]
             log.info(f"AE: {ae_name} <{AE_EMAIL}> role={ae_role}")
 

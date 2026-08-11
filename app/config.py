@@ -11,6 +11,9 @@ OPENCODE_BASE_URL = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/go/v
 SCRAPER_MODEL = os.getenv("OPENCODE_SCRAPER_MODEL", "deepseek-v4-flash")
 # CEO agent (orchestration/reasoning): deepseek-v4-pro
 CEO_MODEL = os.getenv("OPENCODE_CEO_MODEL", "deepseek-v4-pro")
+# Keyword strategist runs once per night; a stronger model is affordable for a
+# single high-leverage decision that allocates the whole day's API budget.
+STRATEGIST_MODEL = os.getenv("OPENCODE_STRATEGIST_MODEL", "gpt-5.6-luna")
 
 LOCAL_DB_PATH = os.getenv("LOCAL_DB_PATH", "data/jobsearch.db")
 NEON_DB_URL = os.getenv("NEON_DB_URL", "")
