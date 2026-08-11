@@ -24,7 +24,7 @@ Be concise and business-like. Always confirm scope before starting a large scrap
 
 @tool
 def get_stats() -> dict:
-    """Return overall scraping stats: total companies, scraped count, total jobs, jobs posted in last 30 days."""
+    """Return overall scraping stats: total companies, scraped count, total jobs, jobs posted in last 10 days."""
     return db.job_stats()
 
 

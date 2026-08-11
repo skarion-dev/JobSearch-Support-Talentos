@@ -1,3 +1,4 @@
+from urllib.parse import urljoin
 from datetime import date, timedelta
 from scrapegraphai.graphs import SmartScraperGraph
 from app.config import LLM_CONFIG
@@ -6,11 +7,15 @@ from app.agents.finder_agent import find_careers_url
 from app.agents.ats_detectors import detect_platform, fetch_with_method
 
 JOB_SCHEMA_PROMPT = (
-    "Extract every job posting listed on this careers/jobs page. "
-    "For each job return: title, location, remote (true/false), salary (if shown), "
-    "a short description, the direct job_url/link, and posted_date if shown "
-    "(format YYYY-MM-DD, or null if unknown). "
-    "Return a JSON list under the key 'jobs'."
+    "Extract every job posting listed on this page. For each job return: title, "
+    "location, remote (true/false), salary (if shown), a short description, the "
+    "direct job_url/link, and posted_date if shown (format YYYY-MM-DD, or null). "
+    "If NO individual job postings are listed on this page (e.g. it's just a careers "
+    "landing/overview page), instead find the link to the actual job listings/search "
+    "page (labels like 'View Open Positions', 'Search Jobs', 'Open Roles', 'View "
+    "Opportunities') and return its href as 'jobs_page_link'. "
+    "Return JSON with keys 'jobs' (list, possibly empty) and 'jobs_page_link' "
+    "(string or null)."
 )
 
 GRAPH_CONFIG = {
@@ -21,7 +26,7 @@ GRAPH_CONFIG = {
 
 
 def _filter_recent(jobs: list[dict]) -> list[dict]:
-    cutoff = date.today() - timedelta(days=30)
+    cutoff = date.today() - timedelta(days=10)
     recent = []
     for job in jobs:
         posted = job.get("posted_date")
@@ -33,6 +38,14 @@ def _filter_recent(jobs: list[dict]) -> list[dict]:
                 pass
         recent.append(job)
     return recent
+
+
+def _ai_scrape(url: str) -> tuple[list[dict], str | None]:
+    graph = SmartScraperGraph(prompt=JOB_SCHEMA_PROMPT, source=url, config=GRAPH_CONFIG)
+    result = graph.run()
+    if not isinstance(result, dict):
+        return [], None
+    return result.get("jobs", []) or [], result.get("jobs_page_link")
 
 
 def _save_result(company_id: int, jobs: list[dict], via: str):
@@ -80,9 +93,24 @@ def scrape_company(company: dict) -> dict:
             pass  # fall back to AI scraping below
 
     try:
-        graph = SmartScraperGraph(prompt=JOB_SCHEMA_PROMPT, source=url, config=GRAPH_CONFIG)
-        result = graph.run()
-        jobs = result.get("jobs", []) if isinstance(result, dict) else []
+        jobs, link_hint = _ai_scrape(url)
+
+        if not jobs and link_hint:
+            follow_url = urljoin(url, link_hint)
+            follow_type, follow_config = detect_platform(follow_url)
+            if follow_type:
+                try:
+                    jobs = fetch_with_method(follow_type, follow_config)
+                    db.set_careers_url(company_id, follow_url)
+                    db.save_method(company_id, follow_type, follow_config)
+                    return _save_result(company_id, jobs, via=follow_type)
+                except Exception:
+                    pass
+            follow_jobs, _ = _ai_scrape(follow_url)
+            if follow_jobs:
+                jobs = follow_jobs
+                db.set_careers_url(company_id, follow_url)
+
         return _save_result(company_id, jobs, via="ai")
 
     except Exception as e:

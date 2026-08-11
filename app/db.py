@@ -16,8 +16,10 @@ def _ensure_schema(conn):
 @contextmanager
 def get_conn():
     os.makedirs(os.path.dirname(LOCAL_DB_PATH) or ".", exist_ok=True)
-    conn = sqlite3.connect(LOCAL_DB_PATH)
+    conn = sqlite3.connect(LOCAL_DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     _ensure_schema(conn)
     try:
         yield conn
@@ -173,8 +175,18 @@ def readiness_stats():
     }
 
 
+def purge_old_jobs(days: int = 10) -> int:
+    """Delete jobs older than the retention window (posted_date known and stale)."""
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM jobs WHERE posted_date IS NOT NULL AND posted_date < ?", (cutoff,)
+        )
+        return cur.rowcount
+
+
 def job_stats():
-    cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+    cutoff = (datetime.utcnow() - timedelta(days=10)).isoformat()
     with get_conn() as conn:
         total_companies = conn.execute("SELECT count(*) FROM companies").fetchone()[0]
         scraped = conn.execute(

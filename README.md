@@ -1,7 +1,7 @@
 # JobSearch Support - Talentos
 
 Multi-agent AI system that scrapes company career pages for job postings from the
-last 30 days, across the full Talentos company list (4,400+ companies).
+last 10 days, across the full Talentos company list (4,400+ companies).
 
 ## Architecture
 

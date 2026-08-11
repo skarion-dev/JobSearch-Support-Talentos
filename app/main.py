@@ -41,7 +41,7 @@ with tab_scrape:
     c1.metric("Total companies", stats["total_companies"])
     c2.metric("Scraped", stats["scraped"])
     c3.metric("Total jobs", stats["total_jobs"])
-    c4.metric("Jobs in last 30 days", stats["recent_jobs"])
+    c4.metric("Jobs in last 10 days", stats["recent_jobs"])
 
     batch_size = st.number_input("Batch size", min_value=1, max_value=500, value=20)
     if st.button("Run scrape batch"):
@@ -83,18 +83,85 @@ with tab_readiness:
         st.info("No daily run has executed yet. Run `python -m scripts.daily_scrape` or wait for the 6AM schedule.")
 
 with tab_jobs:
-    st.subheader("Scraped jobs (last 30 days)")
-    from datetime import datetime, timedelta
-    cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+    st.subheader("Scraped jobs")
+    from datetime import datetime, date, timedelta
+
     with db.get_conn() as conn:
         cur = conn.execute(
             """
-            SELECT j.title, c.name AS company, j.location, j.remote, j.salary, j.posted_date, j.job_url
+            SELECT j.title, c.name AS company, j.location, j.remote, j.salary,
+                   j.posted_date, j.job_url, j.scraped_at
             FROM jobs j JOIN companies c ON c.id = j.company_id
-            WHERE j.posted_date >= ? OR j.posted_date IS NULL
-            ORDER BY j.scraped_at DESC
-            """,
-            (cutoff,),
+            ORDER BY (j.posted_date IS NULL), j.posted_date DESC, j.scraped_at DESC
+            """
         )
         rows = [dict(row) for row in cur.fetchall()]
-    st.dataframe(rows, use_container_width=True)
+
+    if not rows:
+        st.info("No jobs scraped yet. Run a scrape batch from the 'Scrape Control' tab.")
+    else:
+        today = date.today()
+
+        def days_ago(posted):
+            if not posted:
+                return None
+            try:
+                return (today - date.fromisoformat(posted[:10])).days
+            except ValueError:
+                return None
+
+        for r in rows:
+            r["days_ago"] = days_ago(r["posted_date"])
+
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            search = st.text_input("Search title or company")
+        with col2:
+            max_age = st.selectbox("Posted within", ["Any time", "3 days", "7 days", "10 days"], index=3)
+        with col3:
+            sort_choice = st.selectbox("Sort by", ["Newest first", "Oldest first", "Company"])
+
+        filtered = rows
+        if search:
+            s = search.lower()
+            filtered = [r for r in filtered if s in (r["title"] or "").lower() or s in (r["company"] or "").lower()]
+        if max_age != "Any time":
+            limit_days = int(max_age.split()[0])
+            filtered = [r for r in filtered if r["days_ago"] is not None and r["days_ago"] <= limit_days]
+
+        if sort_choice == "Oldest first":
+            filtered = sorted(filtered, key=lambda r: (r["posted_date"] is None, r["posted_date"] or ""))
+        elif sort_choice == "Company":
+            filtered = sorted(filtered, key=lambda r: (r["company"] or "").lower())
+        # "Newest first" is already the default DB order
+
+        st.caption(f"{len(filtered)} of {len(rows)} jobs")
+
+        display_rows = []
+        for r in filtered:
+            age_label = "Unknown" if r["days_ago"] is None else (
+                "Today" if r["days_ago"] == 0 else f"{r['days_ago']}d ago"
+            )
+            display_rows.append(
+                {
+                    "Title": r["title"],
+                    "Company": r["company"],
+                    "Location": r["location"],
+                    "Posted": r["posted_date"] or "Unknown",
+                    "Age": age_label,
+                    "Remote": "Yes" if r["remote"] else ("" if r["remote"] is None else "No"),
+                    "Salary": r["salary"],
+                    "Link": r["job_url"],
+                }
+            )
+
+        st.dataframe(
+            display_rows,
+            use_container_width=True,
+            column_config={
+                "Link": st.column_config.LinkColumn("Link", display_text="Open ->"),
+                "Posted": st.column_config.TextColumn("Posted", width="small"),
+                "Age": st.column_config.TextColumn("Age", width="small"),
+            },
+            hide_index=True,
+        )
