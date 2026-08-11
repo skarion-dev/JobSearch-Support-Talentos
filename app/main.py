@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app import db
 from app.agents.ceo_agent import build_ceo_agent, ask_ceo
 from app.agents.scraper_agent import scrape_company
+from scripts.daily_scrape import run_aggregator_pass
 
 st.set_page_config(page_title="Talentos JobSearch Support", layout="wide")
 st.title("Talentos JobSearch Support")
@@ -43,8 +44,19 @@ with tab_scrape:
     c3.metric("Total jobs", stats["total_jobs"])
     c4.metric("Jobs in last 10 days", stats["recent_jobs"])
 
-    batch_size = st.number_input("Batch size", min_value=1, max_value=500, value=20)
-    if st.button("Run scrape batch"):
+    st.markdown("### Aggregator pass (primary, scales to any company count)")
+    st.caption("Bulk-pulls recent US postings from Adzuna and matches them to companies by name. Free, fast, one pass covers many companies.")
+    pages = st.number_input("Adzuna pages to pull (50 results/page)", min_value=1, max_value=200, value=10)
+    if st.button("Run aggregator pass"):
+        with st.spinner("Pulling and matching postings..."):
+            companies_matched, jobs_found, _ = run_aggregator_pass(max_pages=pages)
+        st.success(f"Matched {companies_matched} companies, found {jobs_found} jobs.")
+
+    st.divider()
+    st.markdown("### Fallback pass (per-company ATS/AI scrape, small batches only)")
+    st.caption("Use for pending companies the aggregator didn't cover. Slower and not meant for large-scale runs.")
+    batch_size = st.number_input("Fallback batch size", min_value=1, max_value=500, value=20)
+    if st.button("Run fallback batch"):
         pending = db.fetch_companies(status="pending", limit=batch_size)
         progress = st.progress(0)
         log = st.empty()

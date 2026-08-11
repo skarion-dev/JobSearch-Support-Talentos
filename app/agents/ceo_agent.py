@@ -12,13 +12,17 @@ from langgraph.prebuilt import create_react_agent
 from app.config import CEO_LLM_CONFIG, CEO_MODEL
 from app import db
 from app.agents.scraper_agent import scrape_company
+from scripts.daily_scrape import run_aggregator_pass
 
 SYSTEM_PROMPT = """You are the CEO agent for a job-search platform (Talentos).
-You coordinate a team of scraper agents that pull job postings from company
-career pages. You can:
+You coordinate a job-scraping pipeline: an aggregator pass (bulk-pulls US jobs
+from Adzuna and matches them to companies by name — this is the primary,
+scalable path) and a per-company fallback pass (ATS-API detection or AI
+scraping, used sparingly for companies the aggregator missed). You can:
 - report stats on how many companies/jobs have been scraped
 - query jobs already in the local database
-- kick off scraping runs for a batch of pending companies
+- kick off an aggregator pass (fast, scales to any number of companies)
+- kick off a small fallback batch for specific pending companies
 Be concise and business-like. Always confirm scope before starting a large scrape."""
 
 
@@ -44,8 +48,15 @@ def list_recent_jobs(limit: int = 20) -> list[dict]:
 
 
 @tool
-def run_scrape_batch(batch_size: int = 20) -> dict:
-    """Scrape a batch of pending companies (default 20) for recent job postings."""
+def run_aggregator_batch(pages: int = 10) -> dict:
+    """Run the Adzuna aggregator pass: bulk-pull recent US postings and match to companies. Scales to any company count."""
+    companies_matched, jobs_found, _ = run_aggregator_pass(max_pages=pages)
+    return {"companies_matched": companies_matched, "jobs_found": jobs_found}
+
+
+@tool
+def run_fallback_scrape_batch(batch_size: int = 20) -> dict:
+    """Per-company ATS/AI scrape fallback for a small batch of pending companies. Not for large-scale use."""
     companies = db.fetch_companies(status="pending", limit=batch_size)
     results = [scrape_company(c) for c in companies]
     done = sum(1 for r in results if r["status"] == "done")
@@ -60,7 +71,7 @@ def build_ceo_agent():
         api_key=CEO_LLM_CONFIG["api_key"],
         base_url=CEO_LLM_CONFIG["base_url"],
     )
-    tools = [get_stats, list_recent_jobs, run_scrape_batch]
+    tools = [get_stats, list_recent_jobs, run_aggregator_batch, run_fallback_scrape_batch]
     return create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
 

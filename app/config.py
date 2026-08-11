@@ -15,6 +15,9 @@ CEO_MODEL = os.getenv("OPENCODE_CEO_MODEL", "deepseek-v4-pro")
 LOCAL_DB_PATH = os.getenv("LOCAL_DB_PATH", "data/jobsearch.db")
 NEON_DB_URL = os.getenv("NEON_DB_URL", "")
 
+ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID", "")
+ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY", "")
+
 LLM_CONFIG = {
     "api_key": OPENCODE_API_KEY,
     "model": f"openai/{SCRAPER_MODEL}",
