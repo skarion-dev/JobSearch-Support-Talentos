@@ -96,11 +96,20 @@ def _txt(v):
 
 
 def _li_input(keywords, max_items, days):
+    # LinkedIn only accepts its own f_TPR windows — 24h, week, month. An
+    # arbitrary value like r259200 (3 days) is rejected with a 400, so snap up
+    # to the next valid window and filter precisely on posted_date afterwards.
+    if days <= 1:
+        window = "r86400"
+    elif days <= 7:
+        window = "r604800"
+    else:
+        window = "r2592000"
     return {
         "keyword": keywords,
         "locations": ["United States"],
         "maxItems": max_items,
-        "publishedAt": f"r{days * 86400}",   # LinkedIn relative-seconds window
+        "publishedAt": window,
         "saveOnlyUniqueItems": True,
     }
 

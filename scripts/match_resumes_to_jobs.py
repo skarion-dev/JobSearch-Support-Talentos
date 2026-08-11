@@ -38,17 +38,26 @@ def load_profiles(include_test: bool = False, only_ready: bool = True) -> list[d
         return [dict(r) for r in conn.execute(query).fetchall()]
 
 
-def load_recent_jobs(days: int) -> list[dict]:
+def load_recent_jobs(days: int, posted_days: int | None = None) -> list[dict]:
+    """
+    days         how recently we captured the job (ingest recency)
+    posted_days  how recently the EMPLOYER posted it (public freshness)
+
+    posted_date is the one that matters to a candidate; scraped_at only says
+    when we happened to see it. When posted_days is set, rows with an unknown
+    posted_date are excluded rather than assumed fresh.
+    """
+    sql = """
+        SELECT id, title, company_name, location, description, posted_date
+        FROM keyword_jobs
+        WHERE scraped_at >= datetime('now', ?)
+    """
+    params = [f"-{days} days"]
+    if posted_days:
+        sql += " AND posted_date IS NOT NULL AND date(posted_date) >= date('now', ?)"
+        params.append(f"-{posted_days} days")
     with db.get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, title, company_name, location, description, posted_date
-            FROM keyword_jobs
-            WHERE scraped_at >= datetime('now', ?)
-            """,
-            (f"-{days} days",),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
 def persist(profile_id: int, matches: list[dict], run_id: str) -> int:
@@ -92,7 +101,8 @@ def trim_to_top_n(profile_id: int, top_n: int):
         )
 
 
-def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: bool, pool_size: int):
+def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: bool,
+         pool_size: int, posted_days: int | None = None):
     profiles = load_profiles(include_test=include_test)
 
     if skip_done:
@@ -108,9 +118,10 @@ def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: boo
         log.info("Nothing to do.")
         return
 
-    jobs = load_recent_jobs(days)
+    jobs = load_recent_jobs(days, posted_days=posted_days)
     run_id = f"run_{int(time.time())}"
-    log.info(f"{len(profiles)} profiles x {len(jobs)} jobs | run_id={run_id}")
+    freshness = f", posted within {posted_days}d" if posted_days else ""
+    log.info(f"{len(profiles)} profiles x {len(jobs)} jobs{freshness} | run_id={run_id}")
 
     # Flatten to (profile, batch) work units so concurrency isn't profile-bound
     units = []
@@ -156,8 +167,11 @@ if __name__ == "__main__":
     parser.add_argument("--pool-size", type=int, default=250, help="Jobs per profile after prefilter")
     parser.add_argument("--include-test", action="store_true")
     parser.add_argument("--skip-done", action="store_true")
+    parser.add_argument("--posted-days", type=int, default=None,
+                        help="Only jobs the employer posted within N days (excludes unknown dates)")
     args = parser.parse_args()
     main(
         top_n=args.top, days=args.days, workers=args.workers,
-        include_test=args.include_test, skip_done=args.skip_done, pool_size=args.pool_size,
+        include_test=args.include_test, skip_done=args.skip_done,
+        pool_size=args.pool_size, posted_days=args.posted_days,
     )

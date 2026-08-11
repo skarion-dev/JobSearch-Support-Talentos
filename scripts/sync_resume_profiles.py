@@ -29,11 +29,32 @@ TEST_ACCOUNTS = {"Test Istiaque", "akash"}
 # approval (see docs/PIPELINE_PLAN.md, Step 0).
 OPERATOR_APPROVES_ALL_NON_TEST = True
 
+# Per-candidate location constraints set by the operator. These are matching
+# rules, not data from Neon, so they live here rather than being invented from
+# candidate fields (Najiur's location columns are all NULL upstream).
+LOCATION_RULES = {
+    "Mir Najiur Rahman": (
+        "LOCATION HARD GATE: only accept jobs within a 100-mile radius of the DMV "
+        "region (Washington DC, Maryland, Northern Virginia — including Baltimore, "
+        "Richmond, Arlington, Alexandria, Bethesda, Rockville, Fairfax) OR jobs that "
+        "are fully remote / remote-US. Reject anything outside that radius that is "
+        "not remote."
+    ),
+}
+
+# NOTE: candidates.status is 'active' for every row, including dropped and
+# placed people — it does not gate anything. The real pipeline gate is
+# candidates.pipeline_stage, which is what the Talentos UI shows in its STAGE
+# column: applying (shown as "Active") | not_started | placed | dropped.
+# Only 'applying' candidates should be matched.
+ACTIVE_STAGE = "applying"
+
 CANDIDATES_QUERY = """
-SELECT id, name, status, target_roles, preferred_locations, work_authorization,
-       visa_status, verified_skills, location_preference, open_to_relocation
+SELECT id, name, status, pipeline_stage, target_roles, preferred_locations,
+       work_authorization, visa_status, verified_skills, location_preference,
+       open_to_relocation
 FROM candidates
-WHERE lower(status) = 'active'
+WHERE lower(pipeline_stage) = %s
 """
 
 BASE_RESUMES_QUERY = """
@@ -57,7 +78,7 @@ def main():
 
     with psycopg.connect(NEON_DB_URL) as conn:
         with conn.cursor() as cur:
-            cur.execute(CANDIDATES_QUERY)
+            cur.execute(CANDIDATES_QUERY, (ACTIVE_STAGE,))
             cols = [d.name for d in cur.description]
             candidates = [dict(zip(cols, row)) for row in cur.fetchall()]
             candidate_ids = [c["id"] for c in candidates]
@@ -75,6 +96,59 @@ def main():
 
     candidates_by_id = {c["id"]: c for c in candidates}
     resumes_by_id = {r["id"]: r for r in resumes}
+
+    # A base resume can exist with no candidate_resume_search_profiles row
+    # (e.g. Mir Najiur Rahman's approved CAD resume). Requiring a profile row
+    # silently dropped those candidates. Synthesize a minimal profile from the
+    # resume itself so they still get matched.
+    def keywords_from_resume(resume: dict) -> list[str]:
+        """
+        Derive search terms from the resume itself for profiles that have no
+        generated keyword set. content.skills is a list of
+        {title, skills: [...]} groups, which is exactly the vocabulary a
+        keyword search needs.
+        """
+        terms: list[str] = list(resume.get("target_roles") or [])
+        content = resume.get("content")
+        if isinstance(content, dict):
+            for group in content.get("skills") or []:
+                if not isinstance(group, dict):
+                    continue
+                if group.get("title"):
+                    terms.append(str(group["title"]))
+                for s in group.get("skills") or []:
+                    if s:
+                        terms.append(str(s))
+            for exp in content.get("experience") or []:
+                if isinstance(exp, dict) and exp.get("title"):
+                    terms.append(str(exp["title"]))
+        seen, out = set(), []
+        for t in terms:
+            t = t.strip()
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                out.append(t)
+        return out
+
+    profiled_resume_ids = {p["base_resume_id"] for p in profiles}
+    for r in resumes:
+        if r["id"] in profiled_resume_ids:
+            continue
+        if (r.get("status") or "").lower() in ("archived", "disabled", "deleted"):
+            continue
+        profiles.append(
+            {
+                "candidate_id": r["candidate_id"],
+                "base_resume_id": r["id"],
+                "keywords": keywords_from_resume(r),
+                "keyword_states": [],
+                "additional_rules": None,
+                "review_status": "no_profile_row",
+                "generation_status": "synthesized_from_resume",
+                "approved_profile_version": None,
+                "profile_version": None,
+            }
+        )
 
     with db.get_conn() as conn:
         conn.execute("DELETE FROM resume_profiles")
@@ -103,6 +177,12 @@ def main():
             if OPERATOR_APPROVES_ALL_NON_TEST and not is_test_account:
                 ready = True
 
+            # Operator-set location constraint, appended to any upstream rules
+            rules = p.get("additional_rules")
+            loc_rule = LOCATION_RULES.get(candidate["name"])
+            if loc_rule:
+                rules = f"{rules}\n\n{loc_rule}" if rules else loc_rule
+
             conn.execute(
                 """
                 INSERT INTO resume_profiles
@@ -124,7 +204,7 @@ def main():
                     candidate.get("location_preference") or candidate.get("preferred_locations"),
                     1 if candidate.get("open_to_relocation") else 0,
                     json.dumps(active_keywords),
-                    p.get("additional_rules"),
+                    rules,
                     p.get("review_status"),
                     p.get("generation_status"),
                     1 if ready else 0,
