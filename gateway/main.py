@@ -41,7 +41,13 @@ from gateway.config import (
 from gateway.keys import pool
 from gateway.limiter import check_and_record
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# force=True: uvicorn's own dictConfig runs before this module is imported and
+# leaves the root logger with handlers already attached, which makes a plain
+# basicConfig() call a silent no-op per the stdlib's own documented behaviour.
+# Without force, every log.info/warning/error in this package -- including
+# the reasoning-effort override notice below -- reliably went nowhere.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", force=True)
 log = logging.getLogger("gateway")
 
 app = FastAPI(title="Skarion LLM Gateway")
