@@ -8,8 +8,12 @@ from scripts.daily_scrape import run_aggregator_pass
 
 st.set_page_config(page_title="Talentos JobSearch Support", layout="wide")
 
+from app.login import require_login, logout_button
+require_login()          # blocks the page until authenticated
+
 from app.auth import render_identity_badge
 _user = render_identity_badge()
+logout_button()
 st.title("Talentos JobSearch Support")
 st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by OpenCode Go (deepseek-v4-flash / deepseek-v4-pro)")
 
