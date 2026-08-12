@@ -143,3 +143,44 @@ proposes thousands of applications, the selection gate is broken.
 **Any authenticated user of the app can push to production Talentos.** There is
 no read-only role yet. Every push is attributed to the signed-in email, so
 actions are traceable — treat the Assign button accordingly.
+
+---
+
+## Deploying a change
+
+**A GitHub push does not update the running app.** Nothing polls the repo
+during the day. The server keeps running the code it last pulled.
+
+There are two ways your change goes live:
+
+| When | What happens |
+|---|---|
+| **Tonight at 00:00** | The nightly task runs `git pull --ff-only` before the cycle, so a merged change is picked up automatically |
+| **Immediately** | Run the deploy script on the server |
+
+```bash
+ssh saki-@192.168.1.193 "powershell -ExecutionPolicy Bypass -File C:\JobSearch-Support-Talentos\deploy.ps1"
+```
+
+`deploy.ps1` pulls, installs any new requirements, restarts the app, and
+verifies it came back on `127.0.0.1:3100`. It refuses to restart if the pull
+fails, so a bad merge leaves the previous version running.
+
+### Everything runs on the server
+
+The app, the tunnel, and the nightly cycle all run on the spare PC
+(`192.168.1.193`), against one SQLite database.
+
+This matters: the nightly cycle was briefly registered on a different machine
+from the app. Both had their own `data/jobsearch.db`, so the cycle wrote
+matches into a database the app never read — the UI would have shown nothing
+new each morning with no error anywhere. If you add a scheduled job, put it on
+the server.
+
+### After changing the schema
+
+`db.get_conn()` runs `db/schema.sqlite.sql` on every connect, and it uses
+`CREATE TABLE IF NOT EXISTS`. New tables appear automatically; **new columns on
+an existing table do not**. Add an `ALTER TABLE` guarded by try/except, as the
+existing migrations do, or the column will be missing on the server while
+working fine on your fresh local database.
