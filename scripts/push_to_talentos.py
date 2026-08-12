@@ -50,7 +50,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("push")
 
 AE_EMAIL = "akash@skarion.com"
-MIN_DESCRIPTION = 120          # masterprompt rule 6
+# Raised from the masterprompt's 120. At 120 we pushed 186 jobs carrying ~457
+# char Adzuna snippets; the generator cannot tailor a resume from those and an
+# AE cannot judge them. 1500 is the line where a description is actually usable.
+MIN_DESCRIPTION = 1500
 SOURCE_LABEL = "jobsearch_support"
 
 
@@ -59,7 +62,8 @@ def norm(s: str | None) -> str:
 
 
 def load_matches(limit: int | None, min_score: int, posted_days: int,
-                 per_candidate_cap: int | None = 50) -> list[dict]:
+                 per_candidate_cap: int | None = 50,
+                 candidate: str | None = None) -> list[dict]:
     """Local matches, best-resume-per-candidate/job already resolved."""
     sql = """
         SELECT m.score, m.band, m.reason,
@@ -73,10 +77,14 @@ def load_matches(limit: int | None, min_score: int, posted_days: int,
         WHERE m.score >= ? AND p.is_test_account = 0
           AND j.posted_date IS NOT NULL
           AND date(j.posted_date) >= date('now', ?)
-        ORDER BY m.score DESC
     """
+    params = [min_score, f"-{posted_days} days"]
+    if candidate:
+        sql += " AND p.candidate_name = ?"
+        params.append(candidate)
+    sql += " ORDER BY m.score DESC"
     with db.get_conn() as conn:
-        rows = [dict(r) for r in conn.execute(sql, (min_score, f"-{posted_days} days")).fetchall()]
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     # One application per (candidate, job) — the DB enforces this with a unique
     # partial index, so pick the candidate's best-scoring resume for each job.
@@ -334,9 +342,11 @@ if __name__ == "__main__":
     ap.add_argument("--posted-days", type=int, default=3)
     ap.add_argument("--per-candidate", type=int, default=50,
                     help="Max new applications per candidate this run (masterprompt cap)")
+    ap.add_argument("--candidate", help="Push one candidate only (phased rollout)")
     ap.add_argument("--commit", action="store_true", help="Actually write to Talentos")
     a = ap.parse_args()
-    ms = load_matches(a.limit, a.min_score, a.posted_days, per_candidate_cap=a.per_candidate)
+    ms = load_matches(a.limit, a.min_score, a.posted_days,
+                      per_candidate_cap=a.per_candidate, candidate=a.candidate)
     log.info(
         f"{len(ms)} candidate/job pairs selected "
         f"(score>={a.min_score}, posted<={a.posted_days}d, max {a.per_candidate}/candidate)"
