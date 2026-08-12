@@ -184,3 +184,79 @@ the server.
 an existing table do not**. Add an `ALTER TABLE` guarded by try/except, as the
 existing migrations do, or the column will be missing on the server while
 working fine on your fresh local database.
+
+---
+
+## Getting onto the server
+
+The server is the spare PC at `192.168.1.193`, user `saki-`. It runs the app,
+the tunnel and the nightly cycle, and holds the only real database.
+
+### 1. Generate a key (on your machine)
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/jobsearch -C "yourname@skarion"
+cat ~/.ssh/jobsearch.pub
+```
+
+Send the **.pub** line to the operator. Never send the private key.
+
+### 2. Operator adds it
+
+The account is a Windows administrator, so OpenSSH reads
+`administrators_authorized_keys`, **not** the per-user `.ssh/authorized_keys`.
+Adding it to the wrong file silently fails to authenticate.
+
+```powershell
+$key = "<paste the ssh-ed25519 ... line>"
+Add-Content "$env:ProgramData\ssh\administrators_authorized_keys" $key
+icacls "$env:ProgramData\ssh\administrators_authorized_keys" /inheritance:r
+icacls "$env:ProgramData\ssh\administrators_authorized_keys" /grant "SYSTEM:F"
+icacls "$env:ProgramData\ssh\administrators_authorized_keys" /grant "BUILTIN\Administrators:F"
+Restart-Service sshd
+```
+
+### 3. Connect
+
+```bash
+ssh -i ~/.ssh/jobsearch saki-@192.168.1.193
+```
+
+You must be on the same network, or on the VPN. Cloudflare Access covers the
+web app only — it does not tunnel SSH.
+
+### Pulling the latest code on the server
+
+```bash
+ssh -i ~/.ssh/jobsearch saki-@192.168.1.193 \
+  "powershell -ExecutionPolicy Bypass -File C:\JobSearch-Support-Talentos\deploy.ps1"
+```
+
+That is the normal way. Use a bare `git pull` only if you do not want the app
+restarted.
+
+### Notes on running commands over SSH
+
+The default remote shell is `cmd.exe`, so `;` does not chain commands. Wrap
+anything non-trivial:
+
+```bash
+ssh ... "powershell -Command \"cd C:\JobSearch-Support-Talentos; git log --oneline -3\""
+```
+
+For anything longer, write a `.ps1`, `scp` it over and run it with
+`-ExecutionPolicy Bypass -File`. Quoting through bash then SSH then PowerShell
+mangles quickly, and non-ASCII characters get corrupted in transit — keep
+scripts ASCII-only.
+
+### What runs on the server
+
+| Task | Schedule | Purpose |
+|---|---|---|
+| `JobSearchApp` | ONSTART | Streamlit on 127.0.0.1:3100 |
+| `CloudflareTunnel` | ONSTART | Tunnel for jobs.skarion.com |
+| `JobSearchNightly` | 00:00 daily | git pull, then the full cycle |
+
+Nothing runs on any other machine. If you find a JobSearch task elsewhere,
+delete it — a second machine scraping into its own database is how the
+split-brain bug happened.
