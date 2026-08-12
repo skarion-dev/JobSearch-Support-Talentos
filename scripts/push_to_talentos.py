@@ -37,6 +37,7 @@ import argparse
 import hashlib
 import logging
 import re
+import time
 from collections import defaultdict
 
 import psycopg
@@ -138,7 +139,15 @@ def idem_key(candidate_id: str, job_key: str) -> str:
 
 
 def push(matches: list[dict], commit: bool, ae_user_id: str | None = None,
-         actor: str | None = None):
+         actor: str | None = None, stagger_seconds: float | None = None):
+    """
+    stagger_seconds: when set, each application is committed individually with
+    a sleep afterward, instead of one commit at the end. Requests it: pushing
+    133 applications in one instant floods the AI-workflow dispatcher with a
+    single burst; spacing them out lets it drain steadily instead. A crash
+    partway through leaves already-committed applications live and correct —
+    automation_idempotency_key makes re-running the remainder safe.
+    """
     with psycopg.connect(NEON_DB_URL) as conn:
         with conn.cursor() as cur:
             if ae_user_id:
@@ -200,7 +209,7 @@ def push(matches: list[dict], commit: bool, ae_user_id: str | None = None,
 
             # ---------------- writes ----------------
             created = defaultdict(int)
-            for p in plan:
+            for i, p in enumerate(plan):
                 job_id = p["existing_job_id"]
                 if not job_id:
                     cur.execute(
@@ -325,7 +334,15 @@ def push(matches: list[dict], commit: bool, ae_user_id: str | None = None,
                 created["ai_workflows"] += 1
                 created["resume_versions_seeded"] += 1
 
-            conn.commit()
+                if stagger_seconds is not None:
+                    conn.commit()
+                    log.info(f"  [{i+1}/{len(plan)}] logged {p['candidate_name']} <- "
+                             f"{p['title'][:42]} @ {p['company_name']} (score {p['score']})")
+                    if i + 1 < len(plan):
+                        time.sleep(stagger_seconds)
+
+            if stagger_seconds is None:
+                conn.commit()
             log.info("--- COMMITTED ---")
             for k in sorted(created):
                 log.info(f"  {k}: {created[k]}")
@@ -341,6 +358,9 @@ if __name__ == "__main__":
                     help="Max new applications per candidate this run (masterprompt cap)")
     ap.add_argument("--candidate", help="Push one candidate only (phased rollout)")
     ap.add_argument("--commit", action="store_true", help="Actually write to Talentos")
+    ap.add_argument("--stagger", type=float, default=None,
+                    help="Seconds between each application's commit, instead of "
+                         "one commit at the end (e.g. --stagger 5)")
     a = ap.parse_args()
     ms = load_matches(a.limit, a.min_score, a.posted_days,
                       per_candidate_cap=a.per_candidate, candidate=a.candidate)
@@ -348,4 +368,4 @@ if __name__ == "__main__":
         f"{len(ms)} candidate/job pairs selected "
         f"(score>={a.min_score}, posted<={a.posted_days}d, max {a.per_candidate}/candidate)"
     )
-    push(ms, commit=a.commit)
+    push(ms, commit=a.commit, stagger_seconds=a.stagger)
