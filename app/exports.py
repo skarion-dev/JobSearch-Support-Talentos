@@ -11,15 +11,23 @@ should chase them by hand, which is what this workbook is for.
 
 This is a library, not a script, so all three callers produce an identical file:
 
-    app/manual_chase_tab.py    download button in the UI
-    scripts/export_unpursued   command line
-    scripts/daily_cycle        written to data/exports/ every night
+    app/manual_chase_tab.py    download button in the UI — live query, never archived
+    scripts/export_unpursued   command line — archived via archive_path()
+    scripts/daily_cycle        written every night — archived via archive_path()
 
-Returns bytes rather than writing to disk, because Streamlit needs bytes and a
-file on the server is no use to someone using the app over the tunnel.
+build_workbook() returns bytes rather than writing to disk, because Streamlit
+needs bytes and a file on the server is no use to someone using the app over
+the tunnel. archive_path() is the separate, disk-facing half: every run from
+the nightly cycle or the CLI gets its own timestamped file under a per-date
+folder in data/exports/ and none of them are ever overwritten, so a run from
+three days ago still shows exactly what that run found. Browsable in the app
+under the Export Archive tab (app/export_archive_tab.py). Manual Chase's live
+filtered downloads deliberately do NOT go through archive_path() — those are
+a query against current state, not a record of what a run produced.
 """
 import io
-from datetime import date
+import os
+from datetime import date, datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -171,3 +179,17 @@ def filename(d_from: date | None = None, d_to: date | None = None) -> str:
     if d_from and d_to:
         return f"manual_chase_{d_from:%Y%m%d}_{d_to:%Y%m%d}.xlsx"
     return f"manual_chase_{date.today():%Y%m%d}.xlsx"
+
+
+def archive_path(base_dir: str, prefix: str = "manual_chase") -> str:
+    """
+    A fresh path for a completed run's workbook, grouped under today's date
+    folder and stamped with the time so runs never overwrite each other --
+    the operator explicitly wants a record of what every run found, not just
+    whatever the latest run happened to see. Two runs on the same day, two
+    files; nothing here is ever silently replaced.
+    """
+    now = datetime.now()
+    day_dir = os.path.join(base_dir, now.strftime("%Y-%m-%d"))
+    os.makedirs(day_dir, exist_ok=True)
+    return os.path.join(day_dir, f"{prefix}_{now.strftime('%H%M%S')}.xlsx")

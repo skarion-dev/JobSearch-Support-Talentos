@@ -30,7 +30,7 @@ def main(min_score: int, days: int | None, candidate: str | None, out: str | Non
         print("Nothing needs manual chasing with these filters.")
         return
 
-    path = out or os.path.join(OUT_DIR, exports.filename(d_from, d_to))
+    path = out or exports.archive_path(OUT_DIR)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "wb") as f:
         f.write(exports.build_workbook(rows))

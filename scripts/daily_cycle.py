@@ -182,8 +182,7 @@ def s6_export():
         log.info("nothing needs manual chasing")
         return 0
 
-    os.makedirs(EXPORT_DIR, exist_ok=True)
-    path = os.path.join(EXPORT_DIR, exports.filename())
+    path = exports.archive_path(EXPORT_DIR)
     with open(path, "wb") as f:
         f.write(exports.build_workbook(rows))
 
