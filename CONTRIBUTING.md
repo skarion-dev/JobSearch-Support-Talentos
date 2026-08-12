@@ -58,6 +58,8 @@ app/
   manual_chase_tab.py   What cannot be automated, as a downloadable sheet
   dashboard_tab.py      Ops dashboard, achieved ATS scores, sourcing quality
   quality.py            ONE definition of a usable job description
+  talentos_state.py     ONE definition of "already logged" — used everywhere
+                        a count is shown, not only at push time
   exports.py            The manual-chase workbook (UI, CLI and nightly share it)
   config.py             Env config and model selection
   db.py                 Local SQLite access

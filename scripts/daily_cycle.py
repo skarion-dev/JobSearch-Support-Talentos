@@ -196,24 +196,54 @@ def s6_export():
 
 @stage("7 report")
 def s7_report():
+    """
+    'sendable' means net-new: matched, adequately described, AND not already
+    logged in Talentos for that candidate by any source. Without the last
+    check this number double-counts jobs the previous night already sent —
+    the push itself would silently skip them, but the log would keep claiming
+    them as fresh opportunity every night until they aged out of the window.
+    """
+    from app.talentos_state import fetch_logged_state, is_logged
+
     with db.get_conn() as conn:
-        rows = conn.execute(f"""
-            SELECT p.candidate_name, count(*) n,
-                   sum(CASE WHEN m.band='TOP_MATCH' THEN 1 ELSE 0 END) tops,
-                   sum(CASE WHEN length(coalesce(j.description,'')) >= {MIN_DESCRIPTION}
-                            THEN 1 ELSE 0 END) ready
+        rows = [dict(r) for r in conn.execute("""
+            SELECT p.candidate_id, p.candidate_name, m.band,
+                   j.title, j.company_name, j.external_job_id,
+                   j.source_url, j.apply_url, j.job_url,
+                   length(coalesce(j.description,'')) desc_len
             FROM resume_job_matches m
             JOIN resume_profiles p ON p.id = m.resume_profile_id
             JOIN keyword_jobs   j ON j.id = m.keyword_job_id
             WHERE p.is_test_account = 0
-            GROUP BY p.candidate_name ORDER BY ready DESC
-        """).fetchall()
+        """).fetchall()]
+
+    cand_ids = sorted({str(r["candidate_id"]) for r in rows})
+    state = fetch_logged_state(cand_ids) if cand_ids else {
+        "external": set(), "url": set(), "title": set(), "title_global": {}}
+
+    agg: dict[str, dict] = {}
+    already_logged = 0
     for r in rows:
-        log.info(f"  {r['ready']:>4} sendable / {r['n']:>4} matched "
-                 f"({r['tops']} top)  {r['candidate_name']}")
-    total = sum(r["n"] for r in rows)
-    ready = sum(r["ready"] for r in rows)
-    log.info(f"READY TO SEND: {ready} of {total} matches across {len(rows)} candidates")
+        if is_logged(r["candidate_id"], state, external_job_id=r["external_job_id"],
+                    apply_url=r["apply_url"], source_url=r["source_url"],
+                    job_url=r["job_url"], company=r["company_name"], title=r["title"]):
+            already_logged += 1
+            continue
+        a = agg.setdefault(r["candidate_name"], {"n": 0, "tops": 0, "ready": 0})
+        a["n"] += 1
+        if r["band"] == "TOP_MATCH":
+            a["tops"] += 1
+        if r["desc_len"] >= MIN_DESCRIPTION:
+            a["ready"] += 1
+
+    for name, a in sorted(agg.items(), key=lambda kv: -kv[1]["ready"]):
+        log.info(f"  {a['ready']:>4} sendable / {a['n']:>4} net-new "
+                 f"({a['tops']} top)  {name}")
+
+    total = sum(a["n"] for a in agg.values())
+    ready = sum(a["ready"] for a in agg.values())
+    log.info(f"READY TO SEND: {ready} of {total} net-new matches across {len(agg)} candidates "
+             f"({already_logged} already in Talentos, excluded)")
     if total:
         log.info(f"automatable rate: {100*ready/total:.0f}% "
                  f"({total - ready} for manual chase)")

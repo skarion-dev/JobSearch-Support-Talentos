@@ -11,6 +11,11 @@ showed both, so an operator could tick forty rows and have half of them silently
 dropped at push time for a short description — the count on the button did not
 match the count that arrived. Now the thin ones are separated out and offered as
 the manual-chase sheet instead of quietly disappearing.
+
+Every count here also cross-checks live Talentos state (app/talentos_state.py)
+so a job already logged — by this tool earlier, or by an AE manually — never
+counts as an opportunity. The push itself already refused to duplicate it; this
+just means the number on screen matches that reality instead of overstating it.
 """
 import re
 from datetime import date, timedelta
@@ -21,6 +26,8 @@ import streamlit as st
 from app import db, exports
 from app.config import NEON_DB_URL
 from app.quality import MIN_DESCRIPTION
+from app.talentos_state import fetch_logged_state, is_logged, logged_by_others
+
 
 def _norm(s: str | None) -> str:
     """Same normalisation the push uses to collapse duplicate company/title."""
@@ -50,33 +57,64 @@ def load_aes() -> list[dict]:
 
 
 @st.cache_data(ttl=120)
-def pushed_keys() -> set[str]:
-    """company|title already in Talentos for a candidate, to hide re-pushes."""
-    with psycopg.connect(NEON_DB_URL) as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT a.candidate_id::text || '|' ||
-                   lower(coalesce(j.company,'')) || '|' || lower(coalesce(j.title,''))
-            FROM applications a JOIN jobs j ON j.id = a.job_id
-        """)
-        return {r[0] for r in cur.fetchall()}
+def logged_state() -> dict:
+    """Live Talentos state for the active roster, cached briefly so a batch of
+    Assign clicks doesn't refetch it per click."""
+    return fetch_logged_state(db.active_candidate_ids())
 
 
-def overview(d_from: date, d_to: date) -> list[dict]:
-    """Per candidate: what is waiting, and how much of it can actually be sent."""
+def _raw_matches(d_from: date, d_to: date) -> list[dict]:
     with db.get_conn() as conn:
-        return [dict(r) for r in conn.execute(f"""
-            SELECT p.candidate_name, count(*) matches,
-                   sum(CASE WHEN m.band='TOP_MATCH' THEN 1 ELSE 0 END) tops,
-                   sum(CASE WHEN length(coalesce(j.description,'')) >= {MIN_DESCRIPTION}
-                            THEN 1 ELSE 0 END) ready,
-                   max(m.score) best, count(DISTINCT p.base_resume_name) resumes
+        return [dict(r) for r in conn.execute("""
+            SELECT p.candidate_id, p.candidate_name, p.base_resume_name,
+                   m.score, m.band,
+                   j.title, j.company_name, j.posted_date,
+                   j.source_url, j.job_url, j.apply_url, j.external_job_id,
+                   length(coalesce(j.description,'')) desc_len
             FROM resume_job_matches m
             JOIN resume_profiles p ON p.id = m.resume_profile_id
             JOIN keyword_jobs   j ON j.id = m.keyword_job_id
             WHERE p.is_test_account = 0
               AND j.posted_date BETWEEN ? AND ?
-            GROUP BY p.candidate_name ORDER BY ready DESC, tops DESC
         """, (d_from.isoformat(), d_to.isoformat())).fetchall()]
+
+
+def _is_logged(m: dict, state: dict) -> bool:
+    return is_logged(m["candidate_id"], state, external_job_id=m.get("external_job_id"),
+                     apply_url=m.get("apply_url"), source_url=m.get("source_url"),
+                     job_url=m.get("job_url"), company=m.get("company_name"),
+                     title=m.get("title"))
+
+
+def overview(d_from: date, d_to: date) -> list[dict]:
+    """
+    Per candidate: what is waiting, how much can actually be sent, and how much
+    is already logged in Talentos and excluded from every count below.
+    """
+    state = logged_state()
+    agg: dict[str, dict] = {}
+    for m in _raw_matches(d_from, d_to):
+        a = agg.setdefault(m["candidate_name"],
+                           {"matches": 0, "tops": 0, "ready": 0, "already_logged": 0,
+                            "best": 0, "resumes": set()})
+        if _is_logged(m, state):
+            a["already_logged"] += 1
+            continue
+        a["matches"] += 1
+        if m["band"] == "TOP_MATCH":
+            a["tops"] += 1
+        if (m["desc_len"] or 0) >= MIN_DESCRIPTION:
+            a["ready"] += 1
+        a["best"] = max(a["best"], m["score"])
+        a["resumes"].add(m["base_resume_name"])
+
+    return sorted(
+        [{"candidate_name": k, "matches": v["matches"], "tops": v["tops"],
+          "ready": v["ready"], "already_logged": v["already_logged"],
+          "best": v["best"], "resumes": len(v["resumes"])}
+         for k, v in agg.items()],
+        key=lambda r: (-r["ready"], -r["tops"]),
+    )
 
 
 def matches_for(candidate: str, resume: str | None, min_score: int,
@@ -85,7 +123,8 @@ def matches_for(candidate: str, resume: str | None, min_score: int,
         SELECT m.score, m.band, m.reason,
                p.base_resume_name, p.candidate_id, p.base_resume_id,
                j.id local_job_id, j.title, j.company_name, j.location,
-               j.posted_date, j.source_url, j.job_url, j.apply_url, j.source,
+               j.posted_date, j.source_url, j.job_url, j.apply_url,
+               j.external_job_id, j.source,
                length(coalesce(j.description,'')) desc_len
         FROM resume_job_matches m
         JOIN resume_profiles p ON p.id = m.resume_profile_id
@@ -155,18 +194,25 @@ def render():
 
     total = sum(r["matches"] for r in rows)
     total_ready = sum(r["ready"] or 0 for r in rows)
+    total_logged = sum(r["already_logged"] or 0 for r in rows)
 
-    t1, t2, t3, t4 = st.columns(4)
+    t1, t2, t3, t4, t5 = st.columns(5)
     t1.metric("Candidates with matches", len(rows))
-    t2.metric("Total matches", total)
+    t2.metric("New opportunities", total,
+              help="Already excludes anything Talentos has logged for that "
+                   "candidate, from any source.")
     t3.metric("Ready to send", total_ready,
               help=f"Description of {MIN_DESCRIPTION}+ chars — enough to tailor a resume.")
     t4.metric("Manual chase", total - total_ready,
               help="Too thin to automate. Download them on the Manual Chase tab.")
+    t5.metric("Already logged", total_logged,
+              help="Excluded above — Talentos already has an application for "
+                   "this candidate against this job. Never re-sent.")
 
     st.dataframe(
-        [{"Candidate": r["candidate_name"], "Matches": r["matches"],
+        [{"Candidate": r["candidate_name"], "New": r["matches"],
           "Ready": r["ready"] or 0, "Chase": r["matches"] - (r["ready"] or 0),
+          "Logged": r["already_logged"] or 0,
           "Top": r["tops"] or 0, "Best": r["best"], "Resumes": r["resumes"]}
          for r in rows],
         use_container_width=True, hide_index=True,
@@ -177,6 +223,9 @@ def render():
             "Chase": st.column_config.NumberColumn(
                 "Manual chase", width="small",
                 help="Matched well but not automatable."),
+            "Logged": st.column_config.NumberColumn(
+                "Already logged", width="small",
+                help="In Talentos already — excluded from New/Ready/Chase."),
         },
     )
 
@@ -204,12 +253,13 @@ def render():
         st.warning("Nothing at this score in this date range. Lower the score or widen the dates.")
         return
 
-    seen = pushed_keys()
+    state = logged_state()
     cid = str(found[0]["candidate_id"])
     fresh, dupes = [], 0
     for m in found:
-        key = f"{cid}|{(m['company_name'] or '').lower()}|{(m['title'] or '').lower()}"
-        if key in seen:
+        if is_logged(cid, state, external_job_id=m.get("external_job_id"),
+                    apply_url=m["apply_url"], source_url=m["source_url"],
+                    job_url=m["job_url"], company=m["company_name"], title=m["title"]):
             dupes += 1
         else:
             fresh.append(m)
@@ -244,6 +294,21 @@ def render():
             f"{collapsed} duplicate rows collapsed — the same job matched by more "
             "than one of this candidate's resumes becomes a single application, "
             "using their best-scoring resume."
+        )
+
+    # Not blocked — a real employer can have more than one identical-looking
+    # opening — but an operator should see it before assigning the same job to
+    # two people. Advisory only.
+    cross = {
+        m["local_job_id"]: logged_by_others(state, company=m["company_name"],
+                                            title=m["title"], exclude_candidate=cid)
+        for m in ready
+    }
+    cross = {k: v for k, v in cross.items() if v}
+    if cross:
+        st.warning(
+            f"⚠ {len(cross)} of these are already logged for another candidate too "
+            "— check before assigning to avoid sending the same opening to two people."
         )
 
     if thin:
@@ -310,6 +375,7 @@ def render():
         "Location": m["location"],
         "Resume": m["base_resume_name"],
         "Chars": m["desc_len"],
+        "⚠": "also→other" if cross.get(m["local_job_id"]) else "",
         "Why": (m["reason"] or "")[:120],
         "Link": m["source_url"] or m["apply_url"] or m["job_url"],
         "_job": m["local_job_id"],
@@ -327,6 +393,9 @@ def render():
                 "Chars", width="small",
                 help="Job description length. Every row here clears the "
                      f"{MIN_DESCRIPTION}-char minimum."),
+            "⚠": st.column_config.TextColumn(
+                "⚠", width="small",
+                help="Already logged in Talentos for a different candidate too."),
             "Link": st.column_config.LinkColumn("Link", display_text="open"),
             "Why": st.column_config.TextColumn("Why matched", width="large"),
             "_job": None,

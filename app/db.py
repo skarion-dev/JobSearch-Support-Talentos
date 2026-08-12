@@ -28,6 +28,15 @@ def get_conn():
         conn.close()
 
 
+def active_candidate_ids() -> list[str]:
+    """Candidates the local match/review pipeline actually serves — the roster
+    every Talentos cross-check should scope to, never Talentos-wide."""
+    with get_conn() as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT DISTINCT candidate_id FROM resume_profiles WHERE is_test_account=0"
+        ).fetchall()]
+
+
 def fetch_companies(status: str | None = None, limit: int | None = None):
     query = "SELECT id, name, website, careers_url FROM companies"
     params = []

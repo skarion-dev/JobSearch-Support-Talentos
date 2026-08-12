@@ -27,6 +27,7 @@ from openpyxl.utils import get_column_letter
 
 from app import db
 from app.quality import MIN_DESCRIPTION, best_link, blocked_reason
+from app.talentos_state import fetch_logged_state, is_logged
 
 HEADERS = [
     ("Candidate", 24), ("Base Resume", 30), ("Score", 7), ("Band", 14),
@@ -45,15 +46,19 @@ def unpursued_rows(min_score: int = 90,
                    d_to: date | None = None,
                    candidate: str | None = None) -> list[dict]:
     """
-    Matches good enough to pursue but too thin to automate.
+    Matches good enough to pursue but too thin to automate — and not already
+    logged in Talentos by any source. If it is already logged, it does not
+    need chasing; telling an operator to go chase something that is already
+    handled is worse than not telling them anything.
 
     Date and candidate filters mirror the Review tab, so what an operator sees
     on screen is exactly what they download.
     """
     sql = f"""
-        SELECT p.candidate_name, p.base_resume_name, m.score, m.band, m.reason,
+        SELECT p.candidate_id, p.candidate_name, p.base_resume_name,
+               m.score, m.band, m.reason,
                j.title, j.company_name, j.location, j.posted_date,
-               j.job_url, j.source_url, j.apply_url, j.source,
+               j.job_url, j.source_url, j.apply_url, j.external_job_id, j.source,
                coalesce(j.description,'') description
         FROM resume_job_matches m
         JOIN resume_profiles p ON p.id = m.resume_profile_id
@@ -72,7 +77,17 @@ def unpursued_rows(min_score: int = 90,
     sql += " ORDER BY p.candidate_name, m.score DESC"
 
     with db.get_conn() as conn:
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    if not rows:
+        return rows
+
+    cand_ids = sorted({str(r["candidate_id"]) for r in rows})
+    state = fetch_logged_state(cand_ids)
+    return [r for r in rows if not is_logged(
+        r["candidate_id"], state, external_job_id=r["external_job_id"],
+        apply_url=r["apply_url"], source_url=r["source_url"], job_url=r["job_url"],
+        company=r["company_name"], title=r["title"],
+    )]
 
 
 def build_workbook(rows: list[dict]) -> bytes:

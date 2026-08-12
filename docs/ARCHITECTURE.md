@@ -212,6 +212,30 @@ application_ai_workflows status=queued  -> the dispatcher picks it up
 
 Then `deduplicate_candidate_jobs.py` enforces one candidate per job.
 
+### Two layers against duplicates — predictive and authoritative
+
+`app/talentos_state.py` cross-checks live Talentos state (any source, any
+stage — not just what this tool logged) and is used everywhere a count or a
+list is shown: Review & Assign's totals, the nightly log, the Manual Chase
+sheet, the Dashboard backlog. A job already logged never counts as an
+opportunity, so what an operator sees is what is actually available to send.
+
+That check is **predictive** — it tells the UI what push will do, so numbers
+don't lie, but push re-verifies for real at write time and is the actual
+authority: fresh 4-pass job lookup, a `dup_app` existence check scoped to the
+exact candidate, and `automation_idempotency_key` as a database-level backstop.
+Even if the predictive check were ever wrong or stale, push cannot create a
+duplicate — it would just silently skip. Measured: before this cross-check
+existed, one candidate's "ready to send" count of 56 included 38 jobs that
+push would have thrown away as already-existing — a 68% overstatement with no
+actual duplicate risk, just a misleading number.
+
+`talentos_state.py` also flags — but does not block — the same job already
+logged for a *different* active candidate, so an operator can catch an
+accidental double-allocation before assigning. A large employer with two
+genuinely separate identical-sounding openings is a real (if rare) case, so
+this stays advisory rather than an automatic exclusion.
+
 ### Constraints that matter
 
 - `jobs` has **no** unique index on `external_job_id`/`source_url`/`apply_url`.
@@ -273,6 +297,7 @@ the model violated the prompt version:
 | Pipeline health: idle / draining / stalled | `dashboard_tab::pipeline_throughput` | The analyst called an **empty** queue "critical — pipeline stalled". A stall needs work that is not moving; both conditions are now decided in SQL and the model is told to use the verdict verbatim |
 | Actor input minimums | `apify_jobs::ACTORS[*]["min_items"]` | The LinkedIn actor rejects `maxItems < 150` with a 400 that looks exactly like a token failure |
 | 400 never rotates tokens | `apify_jobs::run_actor` | A bad payload gets the same 400 from every account, so retrying would burn all 20 tokens on our own bug |
+| Already-logged jobs excluded from every count, not just the push | `app/talentos_state.py` | Only the drill-down dedupe existed; the overview totals, the nightly report and the Manual Chase sheet all counted jobs Talentos already had. One candidate's "ready" count of 56 included 38 that push would have skipped |
 
 ---
 

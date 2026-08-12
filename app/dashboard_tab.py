@@ -25,6 +25,7 @@ import streamlit as st
 from app import db
 from app.config import NEON_DB_URL
 from app.quality import MIN_DESCRIPTION
+from app.talentos_state import fetch_logged_state, is_logged
 
 # Talentos' own applications average 7.49. Below this we are underperforming
 # the manual pipeline we are supposed to be scaling.
@@ -39,14 +40,11 @@ STATUS_BANNER = {
 
 
 @st.cache_data(ttl=120)
-def pushed_pairs() -> set[str]:
-    with psycopg.connect(NEON_DB_URL) as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT a.candidate_id::text || '|' ||
-                   lower(coalesce(j.company,'')) || '|' || lower(coalesce(j.title,''))
-            FROM applications a JOIN jobs j ON j.id = a.job_id
-        """)
-        return {r[0] for r in cur.fetchall()}
+def logged_state() -> dict:
+    """Live Talentos state for the active roster — see app/talentos_state.py.
+    Backlog and every downstream metric are computed net of this, so a job
+    already logged (any source, any stage) never inflates the numbers."""
+    return fetch_logged_state(db.active_candidate_ids())
 
 
 @st.cache_data(ttl=120)
@@ -167,12 +165,14 @@ def source_quality() -> pd.DataFrame:
 
 
 def backlog() -> pd.DataFrame:
-    """Matches never pushed to Talentos, with age."""
-    seen = pushed_pairs()
+    """Matches never logged in Talentos, with age. 'Never logged' is checked
+    against live Talentos state (any source), not just this tool's own pushes."""
+    state = logged_state()
     with db.get_conn() as conn:
         rows = [dict(r) for r in conn.execute("""
             SELECT p.candidate_name, p.candidate_id, p.base_resume_name,
-                   m.score, m.band, j.title, j.company_name, j.posted_date, j.source
+                   m.score, m.band, j.title, j.company_name, j.posted_date, j.source,
+                   j.source_url, j.job_url, j.apply_url, j.external_job_id
             FROM resume_job_matches m
             JOIN resume_profiles p ON p.id = m.resume_profile_id
             JOIN keyword_jobs   j ON j.id = m.keyword_job_id
@@ -182,8 +182,9 @@ def backlog() -> pd.DataFrame:
     today = date.today()
     out = []
     for r in rows:
-        key = f"{r['candidate_id']}|{(r['company_name'] or '').lower()}|{(r['title'] or '').lower()}"
-        if key in seen:
+        if is_logged(r["candidate_id"], state, external_job_id=r["external_job_id"],
+                    apply_url=r["apply_url"], source_url=r["source_url"],
+                    job_url=r["job_url"], company=r["company_name"], title=r["title"]):
             continue
         try:
             age = (today - date.fromisoformat(str(r["posted_date"])[:10])).days
