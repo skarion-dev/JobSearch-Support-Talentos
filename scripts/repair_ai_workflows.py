@@ -51,9 +51,8 @@ log = logging.getLogger("repair")
 
 SOURCE_LABEL = "jobsearch_support"
 
-# Only the job fields Talentos puts in the snapshot
-JOB_FIELDS = ("id", "notes", "title", "ref_id", "source", "company", "benefits",
-              "location", "apply_url", "input_url", "is_active", "posted_at")
+# Talentos passes the ENTIRE jobs row. Narrowing it makes the generator hit
+# undefined on fields it expects and fail with "toLowerCase is not a function".
 
 FETCH = f"""
 SELECT a.id app_id, a.candidate_id, a.base_resume_id, a.job_id,
@@ -72,16 +71,18 @@ LEFT JOIN target_jobs t ON t.candidate_id = a.candidate_id AND t.job_id = a.job_
 LEFT JOIN application_resume_versions v ON v.id = a.tailored_resume_version_id
 LEFT JOIN candidate_source_of_truth s ON s.candidate_id = a.candidate_id
 WHERE a.source = %s
-  AND w.config_snapshot IS NULL
   AND a.applied_at IS NULL          -- never touch anything already applied
+  AND (
+        w.config_snapshot IS NULL           -- never prepared
+     OR w.status = 'failed'                 -- prepared wrongly, safe to redo
+  )
 ORDER BY a.created_at
 """
 
 
 def build_snapshot(row: dict, seed_version: dict) -> dict:
-    job = {k: v for k, v in (row["job_row"] or {}).items() if k in JOB_FIELDS}
     return {
-        "job": job,
+        "job": row["job_row"] or {},   # full row - never narrow
         "baseResume": seed_version,
         "candidateId": str(row["candidate_id"]),
         "sourceOfTruth": {
@@ -101,7 +102,7 @@ def main(limit: int | None, commit: bool):
         if limit:
             rows = rows[:limit]
 
-        log.info(f"{len(rows)} applications have a workflow with no config_snapshot")
+        log.info(f"{len(rows)} applications need a workflow payload (missing snapshot or failed)")
         missing_content = [r for r in rows if not r["base_content"]]
         if missing_content:
             log.warning(f"{len(missing_content)} have no base resume content and will be skipped")

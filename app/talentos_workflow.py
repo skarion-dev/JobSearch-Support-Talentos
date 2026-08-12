@@ -29,9 +29,11 @@ from psycopg.types.json import Jsonb
 
 log = logging.getLogger("talentos_workflow")
 
-# The job fields Talentos includes in the snapshot, and only those.
-JOB_FIELDS = ("id", "notes", "title", "ref_id", "source", "company", "benefits",
-              "location", "apply_url", "input_url", "is_active", "posted_at")
+# Talentos passes the ENTIRE jobs row, not a subset. An earlier version
+# whitelisted 12 fields taken from a debug print that had been truncated to the
+# first 12 keys; the generator then hit undefined on fields like
+# description_text / seniority_level / employment_type and died with
+# "e5.toLowerCase is not a function". Never narrow this payload.
 
 
 def fetch_candidate_context(cur, candidate_id) -> dict:
@@ -91,7 +93,7 @@ def build_config_snapshot(cur, candidate_id, job_id, seed_version: dict) -> dict
     ctx = fetch_candidate_context(cur, candidate_id)
 
     return {
-        "job": {k: v for k, v in job_row.items() if k in JOB_FIELDS},
+        "job": job_row,          # full row - see note above
         "baseResume": seed_version,
         "candidateId": str(candidate_id),
         "sourceOfTruth": {
