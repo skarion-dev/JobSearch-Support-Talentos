@@ -209,6 +209,7 @@ reachable from the LAN or the internet except through Cloudflare.
 | Cloudflare Tunnel | Scheduled task `CloudflareTunnel` (ONSTART) | tunnel `jobsearch` |
 | Nightly cycle | Scheduled task `JobSearchNightly` (00:00) | on the spare PC |
 | LLM gateway | Scheduled task `LLMGateway` (ONSTART) | binds 127.0.0.1:8787 only — see [docs/GATEWAY.md](GATEWAY.md) |
+| Watchdog | Scheduled task `Watchdog` (every 3 min) | restarts whichever of the three above is missing |
 
 The tunnel runs as a scheduled task rather than a Windows service. The service
 installer produced a service with no arguments and would not retain a binPath
@@ -243,3 +244,25 @@ If it returns 530, the tunnel has no active connector — restart the task:
 ```bash
 ssh saki-@192.168.1.193 "schtasks /Run /TN CloudflareTunnel"
 ```
+
+### Watchdog
+
+`deploy/watchdog.ps1` runs every 3 minutes and restarts whichever of
+`CloudflareTunnel`, `JobSearchApp`, or `LLMGateway` isn't actually up —
+checking the real signal (a listening port for the two local servers, process
+existence for cloudflared) rather than trusting that ONSTART was enough.
+
+It exists because ONSTART only fires at boot. A deploy, a manual restart, or
+anyone else working on the box for an unrelated reason can kill any of these
+mid-day, and nothing brought them back until a human noticed — which is
+exactly what took `jobs.skarion.com` and `llm.skarion.com` both down for
+hours on 2026-08-12. The watchdog turns that into a sub-3-minute self-heal
+regardless of who or what caused it.
+
+```bash
+schtasks /Create /TN Watchdog /TR "powershell -ExecutionPolicy Bypass -File C:\JobSearch-Support-Talentos\deploy\watchdog.ps1" /SC MINUTE /MO 3 /RU <user> /F
+```
+
+Log: `watchdog.log`, trimmed to the last 2000 lines. Silence in the log
+between runs means nothing needed restarting — it only writes a line when it
+actually acts.
