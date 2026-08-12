@@ -23,12 +23,12 @@ import logging
 import psycopg
 
 from app.config import NEON_DB_URL
+from app.quality import MIN_DESCRIPTION as MIN_GOOD
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("unlog")
 
 SOURCE_LABEL = "jobsearch_support"
-MIN_GOOD = 1500
 
 UNTOUCHED = """
     source = %s

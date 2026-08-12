@@ -44,16 +44,13 @@ from psycopg.types.json import Jsonb
 
 from app import db
 from app.config import NEON_DB_URL
+from app.quality import MIN_DESCRIPTION
 from app.talentos_workflow import prepare_workflow_payload
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("push")
 
 AE_EMAIL = "akash@skarion.com"
-# Raised from the masterprompt's 120. At 120 we pushed 186 jobs carrying ~457
-# char Adzuna snippets; the generator cannot tailor a resume from those and an
-# AE cannot judge them. 1500 is the line where a description is actually usable.
-MIN_DESCRIPTION = 1500
 SOURCE_LABEL = "jobsearch_support"
 
 

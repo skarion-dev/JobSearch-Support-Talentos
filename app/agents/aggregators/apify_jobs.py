@@ -18,12 +18,21 @@ Token rotation
 Talentos keeps a pool of ~44 free-tier tokens and rotates as each allowance is
 spent. Same behaviour here: on 401/402/403/429 the token is retired for the
 process and the call retries on the next one.
+
+A spent token authenticates perfectly well — /users/me returns 200 — and only
+fails when you try to start a run, with 403 "Monthly usage hard limit
+exceeded". So liveness cannot be checked by authenticating; the pool is probed
+against /users/me/limits once per process and exhausted tokens are skipped
+before the first real call rather than burned discovering they are dead.
 """
+import logging
 import os
 import threading
 import time
 
 import requests
+
+log = logging.getLogger("apify")
 
 BASE = "https://api.apify.com/v2"
 POLL_INTERVAL = 10
@@ -44,16 +53,69 @@ def _load_tokens() -> list[str]:
     return toks
 
 
-TOKENS = _load_tokens()
+# Loaded lazily. At module scope this read os.environ before app.config had run
+# load_dotenv, so whether any tokens existed depended purely on import order —
+# importing this module first gave a silent "No APIFY_TOKEN_* configured".
+TOKENS: list[str] = []
 _lock = threading.Lock()
 _idx = 0
 _dead: set[int] = set()
+_probed = False
+
+
+def _ensure_tokens() -> None:
+    global TOKENS
+    if not TOKENS:
+        TOKENS = _load_tokens()
+
+
+def _has_credit(token: str) -> bool:
+    """A spent free tier still authenticates; only the limits endpoint tells."""
+    try:
+        r = requests.get(f"{BASE}/users/me/limits", params={"token": token}, timeout=20)
+        if r.status_code != 200:
+            return False
+        d = r.json()["data"]
+        used = d.get("current", {}).get("monthlyUsageUsd") or 0
+        cap = d.get("limits", {}).get("maxMonthlyUsageUsd") or 0
+        return (cap - used) > 0.25
+    except Exception:
+        return True     # never let a probe failure block a real run
+
+
+def probe_pool() -> dict:
+    """Retire exhausted tokens up front, so runs start on one that can work."""
+    global _idx, _probed
+    _ensure_tokens()
+    if _probed or not TOKENS:
+        return token_status()
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(min(len(TOKENS), 20)) as ex:
+        alive = list(ex.map(_has_credit, TOKENS))
+
+    with _lock:
+        for i, ok in enumerate(alive):
+            if not ok:
+                _dead.add(i)
+        _idx = next((i for i in range(len(TOKENS)) if i not in _dead), 0)
+        _probed = True
+
+    status = token_status()
+    log.info(f"apify pool: {status['total'] - status['retired']}/{status['total']} tokens usable")
+    return status
 
 
 def _current() -> tuple[int, str]:
+    _ensure_tokens()
     with _lock:
         if not TOKENS:
             raise RuntimeError("No APIFY_TOKEN_* configured — run scripts.sync_apify_tokens")
+        if len(_dead) >= len(TOKENS):
+            raise RuntimeError(
+                f"All {len(TOKENS)} Apify tokens are exhausted or invalid. "
+                "Free tiers reset monthly; add more with scripts.sync_apify_tokens."
+            )
         return _idx, TOKENS[_idx]
 
 
@@ -69,8 +131,13 @@ def _retire(i: int) -> bool:
 
 
 def token_status() -> dict:
+    _ensure_tokens()
     with _lock:
         return {"total": len(TOKENS), "active_index": _idx, "retired": len(_dead)}
+
+
+class ActorInputError(RuntimeError):
+    """The actor rejected our payload. Rotating tokens cannot fix this."""
 
 
 # --- actor registry ---------------------------------------------------------
@@ -219,11 +286,15 @@ def _google_map(r):
 
 
 ACTORS = {
-    # Proven in Talentos production (actId 2rJKkhh7vjpX7pvjg)
+    # Proven in Talentos production (actId 2rJKkhh7vjpX7pvjg).
+    # min_items is the actor's own floor, not a preference: it rejects the whole
+    # run with 400 "Field input.maxItems must be >= 150". A smoke test with a
+    # small number therefore fails in a way that looks like a token problem.
     "linkedin": {
         "actor": "cheap_scraper~linkedin-job-scraper",
         "build_input": _li_input,
         "map_row": _li_map,
+        "min_items": 150,
     },
     # 5.0 rating, 99.9% success, 23k users, ~$0.0001/job
     "indeed": {
@@ -256,7 +327,14 @@ def run_actor(source: str, keywords: list[str], max_items: int = 200,
               days: int = 7, timeout: int = DEFAULT_TIMEOUT) -> list[dict]:
     """Run an actor to completion and return rows mapped to our common shape."""
     spec = ACTORS[source]
+
+    floor = spec.get("min_items")
+    if floor and max_items < floor:
+        log.info(f"{source}: raising max_items {max_items} -> {floor} (actor minimum)")
+        max_items = floor
+
     payload = spec["build_input"](keywords, max_items, days)
+    probe_pool()
 
     while True:
         idx, token = _current()
@@ -265,9 +343,15 @@ def run_actor(source: str, keywords: list[str], max_items: int = 200,
             params={"token": token}, json=payload, timeout=60,
         )
         if start.status_code in (401, 402, 403, 429):
+            # Account-level problem: this token is done, try the next one.
+            log.warning(f"{source}: token {idx} rejected ({start.status_code}), rotating")
             if _retire(idx):
                 continue
             start.raise_for_status()
+        if start.status_code == 400:
+            # Our payload is wrong. Every token would give the same answer, so
+            # rotating would burn the entire pool on a bug. Fail loudly instead.
+            raise ActorInputError(f"{spec['actor']} rejected the input: {start.text[:300]}")
         start.raise_for_status()
         run = start.json()["data"]
         break

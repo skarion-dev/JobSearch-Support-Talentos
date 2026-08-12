@@ -1,20 +1,40 @@
 """
 Nightly cycle — runs at 00:00 and prepares the day's shortlist for review.
 
-Six stages, in order. Each is independently re-runnable and a failure in one
+Seven stages, in order. Each is independently re-runnable and a failure in one
 does not corrupt the others; the run is recorded either way.
 
   1 sync      pull active candidates + approved base resumes from Talentos
   2 keywords  gpt-5.6-luna picks tonight's search terms from measured ROI
-  3 ingest    Adzuna + Apify (LinkedIn/Indeed/Google), 24h window
+  3 ingest    Apify first (full descriptions), Adzuna second (discovery)
   4 enrich    recover readable links, pull full descriptions
   5 match     deepseek-v4-flash scores jobs per base resume, 100-wide
-  6 report    write run stats
+  6 export    write the manual-chase sheet for what cannot be automated
+  7 report    per-source yield and what is ready for review
 
 This NEVER writes to Talentos. A human reviews in the UI and clicks Assign.
 
+WHY APIFY LEADS
+---------------
+Measured over 28,325 ingested jobs:
+
+    adzuna           25,938 jobs     224 usable    (1%)   avg   535 chars
+    apify:linkedin    2,150 jobs   2,093 usable   (97%)   avg 5,473 chars
+    apify:indeed        227 jobs     225 usable   (99%)   avg 5,622 chars
+
+Adzuna was 92% of the corpus and 9% of what could actually be pushed, because
+it truncates at ~500 characters and gates its own links behind a login — there
+is nothing left to scrape. Roughly half of every candidate's matches were being
+skipped at push time as a result.
+
+So Apify now runs first and wide, and Adzuna's budget is cut to what earns its
+keep. Adzuna is kept rather than dropped: it still surfaced 80 usable matches
+and covers boards the actors do not reach. It is a discovery signal, not a
+source of applications.
+
 Run: python -m scripts.daily_cycle
      python -m scripts.daily_cycle --skip-ingest      (re-match only)
+     python -m scripts.daily_cycle --no-adzuna        (Apify only)
 """
 import argparse
 import csv
@@ -24,6 +44,7 @@ import time
 import traceback
 
 from app import db
+from app.quality import MIN_DESCRIPTION
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +54,19 @@ logging.basicConfig(
 log = logging.getLogger("daily_cycle")
 
 WINDOW_DAYS = 1          # postings from the last 24 hours only
-ROI_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "roi_keywords.csv")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+ROI_PATH = os.path.join(DATA_DIR, "roi_keywords.csv")
+EXPORT_DIR = os.path.join(DATA_DIR, "exports")
+
+# Apify plan, per source. chunk is a hard constraint, not a tuning knob:
+# Indeed's query parser returns nothing for OR-joined lists so it must be driven
+# one keyword per run, while LinkedIn and Google accept a batch.
+APIFY_PLAN = [
+    #  source      keywords  max_items  chunk
+    ("linkedin",   400,      1000,      50),
+    ("indeed",     120,      400,       1),
+    ("google",     60,       400,       6),
+]
 
 
 def stage(name):
@@ -79,25 +112,46 @@ def s2_keywords(n_keywords: int):
 
 
 @stage("3 ingest")
-def s3_ingest(keywords: list[str], apify: bool):
+def s3_ingest(keywords: list[str], apify: bool, adzuna: bool):
     before = _job_count()
 
-    from scripts.keyword_search import main as adzuna_search
-    adzuna_search(top_n=len(keywords), days=WINDOW_DAYS, workers=20,
-                  max_pages=3, call_budget=450, source="roi")
-
+    # Apify first and widest — these are the jobs that can actually be pushed.
     if apify:
         from scripts.apify_ingest import main as apify_ingest
-        for src, chunk in (("linkedin", 50), ("indeed", 1), ("google", 6)):
+        for src, top, max_items, chunk in APIFY_PLAN:
             try:
-                apify_ingest(src, top=min(len(keywords), 120 if src != "indeed" else 40),
-                             max_items=500, days=WINDOW_DAYS, chunk=chunk)
+                apify_ingest(src, top=min(len(keywords), top),
+                             max_items=max_items, days=WINDOW_DAYS, chunk=chunk)
             except Exception as e:
                 log.warning(f"apify {src} failed: {e}")
 
+    # Adzuna second, on a smaller budget. Broad coverage of boards the actors
+    # miss, but 1% of it survives the description gate.
+    if adzuna:
+        from scripts.keyword_search import main as adzuna_search
+        adzuna_search(top_n=len(keywords), days=WINDOW_DAYS, workers=20,
+                      max_pages=2, call_budget=250, source="roi")
+
     added = _job_count() - before
     log.info(f"ingested {added} new jobs")
+    _log_source_yield()
     return added
+
+
+def _log_source_yield():
+    """Per-source usable rate for tonight's intake — the number that matters."""
+    with db.get_conn() as conn:
+        rows = conn.execute(f"""
+            SELECT source, count(*) n,
+                   sum(CASE WHEN length(coalesce(description,'')) >= {MIN_DESCRIPTION}
+                            THEN 1 ELSE 0 END) usable
+            FROM keyword_jobs
+            WHERE date(scraped_at) = date('now')
+            GROUP BY source ORDER BY n DESC
+        """).fetchall()
+    for r in rows:
+        pct = 100 * r["usable"] / r["n"] if r["n"] else 0
+        log.info(f"  {str(r['source']):<16} {r['n']:>6} jobs  {r['usable']:>5} usable ({pct:.0f}%)")
 
 
 @stage("4 enrich")
@@ -115,20 +169,55 @@ def s5_match(workers: int):
           skip_done=False, pool_size=250, posted_days=WINDOW_DAYS)
 
 
-@stage("6 report")
-def s6_report():
+@stage("6 export manual-chase sheet")
+def s6_export():
+    """
+    Whatever matched well but cannot be automated becomes a worklist, not a
+    silent drop. The same workbook is downloadable in the UI; this copy means
+    it also exists on disk without anyone having to open the app.
+    """
+    from app import exports
+    rows = exports.unpursued_rows(min_score=90)
+    if not rows:
+        log.info("nothing needs manual chasing")
+        return 0
+
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    path = os.path.join(EXPORT_DIR, exports.filename())
+    with open(path, "wb") as f:
+        f.write(exports.build_workbook(rows))
+
+    summary = exports.summarise(rows)
+    log.info(f"{summary['total']} jobs need manual chasing -> {os.path.abspath(path)}")
+    for why, n in sorted(summary["by_reason"].items(), key=lambda x: -x[1]):
+        log.info(f"    {n:>4}  {why}")
+    return summary["total"]
+
+
+@stage("7 report")
+def s7_report():
     with db.get_conn() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT p.candidate_name, count(*) n,
-                   sum(CASE WHEN m.band='TOP_MATCH' THEN 1 ELSE 0 END) tops
-            FROM resume_job_matches m JOIN resume_profiles p ON p.id=m.resume_profile_id
-            GROUP BY p.candidate_name ORDER BY n DESC
+                   sum(CASE WHEN m.band='TOP_MATCH' THEN 1 ELSE 0 END) tops,
+                   sum(CASE WHEN length(coalesce(j.description,'')) >= {MIN_DESCRIPTION}
+                            THEN 1 ELSE 0 END) ready
+            FROM resume_job_matches m
+            JOIN resume_profiles p ON p.id = m.resume_profile_id
+            JOIN keyword_jobs   j ON j.id = m.keyword_job_id
+            WHERE p.is_test_account = 0
+            GROUP BY p.candidate_name ORDER BY ready DESC
         """).fetchall()
     for r in rows:
-        log.info(f"  {r['n']:>4} matches ({r['tops']} top)  {r['candidate_name']}")
+        log.info(f"  {r['ready']:>4} sendable / {r['n']:>4} matched "
+                 f"({r['tops']} top)  {r['candidate_name']}")
     total = sum(r["n"] for r in rows)
-    log.info(f"READY FOR REVIEW: {total} matches across {len(rows)} candidates")
-    return total
+    ready = sum(r["ready"] for r in rows)
+    log.info(f"READY TO SEND: {ready} of {total} matches across {len(rows)} candidates")
+    if total:
+        log.info(f"automatable rate: {100*ready/total:.0f}% "
+                 f"({total - ready} for manual chase)")
+    return ready
 
 
 def _job_count() -> int:
@@ -136,7 +225,8 @@ def _job_count() -> int:
         return conn.execute("SELECT count(*) FROM keyword_jobs").fetchone()[0]
 
 
-def main(n_keywords: int, workers: int, skip_ingest: bool, apify: bool):
+def main(n_keywords: int, workers: int, skip_ingest: bool,
+         apify: bool = True, adzuna: bool = True):
     t0 = time.time()
     log.info("########## NIGHTLY CYCLE START ##########")
 
@@ -144,10 +234,11 @@ def main(n_keywords: int, workers: int, skip_ingest: bool, apify: bool):
     s1_sync()
     keywords = s2_keywords(n_keywords) or []
     if not skip_ingest and keywords:
-        s3_ingest(keywords, apify)
+        s3_ingest(keywords, apify, adzuna)
     s4_enrich()
     s5_match(workers)
-    s6_report()
+    s6_export()
+    s7_report()
 
     log.info(f"########## CYCLE DONE in {(time.time()-t0)/60:.1f} min ##########")
 
@@ -158,5 +249,8 @@ if __name__ == "__main__":
     ap.add_argument("--workers", type=int, default=100)
     ap.add_argument("--skip-ingest", action="store_true")
     ap.add_argument("--no-apify", action="store_true")
+    ap.add_argument("--no-adzuna", action="store_true",
+                    help="Apify only — highest quality, lowest volume")
     a = ap.parse_args()
-    main(a.keywords, a.workers, a.skip_ingest, apify=not a.no_apify)
+    main(a.keywords, a.workers, a.skip_ingest,
+         apify=not a.no_apify, adzuna=not a.no_adzuna)

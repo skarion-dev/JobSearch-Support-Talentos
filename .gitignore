@@ -7,3 +7,7 @@ __pycache__/
 venv/
 *.log
 .streamlit/secrets.toml
+
+# Manual-chase workbooks: candidate names, scores and links. Never publish.
+data/exports/
+*.xlsx

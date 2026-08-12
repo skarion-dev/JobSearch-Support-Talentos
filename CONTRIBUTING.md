@@ -50,11 +50,15 @@ rather than re-scraping — a full rebuild costs an entire day's API budget.
 ## Layout
 
 ```
+run_app.py              Start the app from any directory
 app/
   main.py               Streamlit entry point and tab wiring
   auth.py               Cloudflare Access identity
   review_tab.py         Review & Assign — the only path to Talentos
-  dashboard_tab.py      Ops dashboard and charts
+  manual_chase_tab.py   What cannot be automated, as a downloadable sheet
+  dashboard_tab.py      Ops dashboard, achieved ATS scores, sourcing quality
+  quality.py            ONE definition of a usable job description
+  exports.py            The manual-chase workbook (UI, CLI and nightly share it)
   config.py             Env config and model selection
   db.py                 Local SQLite access
   filters.py            USA filter and regional gates (enforced in code)
@@ -99,8 +103,26 @@ model. An LLM there is slower, costlier and less reliable than an HTTP call.
 
 **Comment the why, not the what.** Especially for anything that looks odd —
 it is usually load-bearing. `ON CONFLICT` repeating an index predicate, state
-codes matched in original case, LinkedIn's fixed time windows: each of those
-looks like a mistake and is not.
+codes matched in original case, LinkedIn's fixed time windows, the actor's
+`min_items: 150`: each of those looks like a mistake and is not.
+
+**A threshold belongs in one place.** The 1,500-character floor decides whether
+a real person gets a real application. It lived in four files and the review UI
+applied none of them, so operators selected rows that silently vanished. It is
+`app/quality.py` now — import it, never re-type the number.
+
+**What the UI promises must be what the push delivers.** Any filter the push
+applies has to be visible in Review & Assign, or the button lies. There is a
+consistency check for this; run it after touching either side:
+
+```bash
+python -c "import logging;logging.disable(logging.INFO);from datetime import date,timedelta;from app.review_tab import matches_for,_norm,overview;from app.quality import MIN_DESCRIPTION;from scripts.push_to_talentos import load_matches;d=date.today();f=d-timedelta(days=3650);[print(c['candidate_name'],len({(_norm(m['company_name']),_norm(m['title'])):m for m in sorted([x for x in matches_for(c['candidate_name'],'All',90,f,d) if (x['desc_len'] or 0)>=MIN_DESCRIPTION],key=lambda x:-x['score'])}),len([m for m in load_matches(None,90,3650,per_candidate_cap=None,candidate=c['candidate_name']) if len(m['description'] or '')>=MIN_DESCRIPTION])) for c in overview(f,d)]"
+```
+
+**Measure quality, not throughput.** 431 applications once averaged an ATS score
+of 0.27 with 367 zeros while every queue, stage and chart looked healthy. The
+dashboard reads scores back out of Talentos for exactly this reason. A change
+that increases volume and lowers `overall_avg_ats` is a regression.
 
 ---
 

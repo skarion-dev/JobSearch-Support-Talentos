@@ -5,14 +5,27 @@ Designed around the real workflow: most days you review yesterday's batch, but
 after a weekend or a busy stretch you need to catch up on several days at once.
 So the date range is front and centre with one-click presets, and an overview
 shows every candidate's backlog before you drill into one.
+
+Matches are split into what can be pushed and what cannot. Previously the table
+showed both, so an operator could tick forty rows and have half of them silently
+dropped at push time for a short description — the count on the button did not
+match the count that arrived. Now the thin ones are separated out and offered as
+the manual-chase sheet instead of quietly disappearing.
 """
+import re
 from datetime import date, timedelta
 
 import psycopg
 import streamlit as st
 
-from app import db
+from app import db, exports
 from app.config import NEON_DB_URL
+from app.quality import MIN_DESCRIPTION
+
+def _norm(s: str | None) -> str:
+    """Same normalisation the push uses to collapse duplicate company/title."""
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
 
 PRESETS = {
     "Today": 0,
@@ -49,17 +62,20 @@ def pushed_keys() -> set[str]:
 
 
 def overview(d_from: date, d_to: date) -> list[dict]:
+    """Per candidate: what is waiting, and how much of it can actually be sent."""
     with db.get_conn() as conn:
-        return [dict(r) for r in conn.execute("""
+        return [dict(r) for r in conn.execute(f"""
             SELECT p.candidate_name, count(*) matches,
                    sum(CASE WHEN m.band='TOP_MATCH' THEN 1 ELSE 0 END) tops,
+                   sum(CASE WHEN length(coalesce(j.description,'')) >= {MIN_DESCRIPTION}
+                            THEN 1 ELSE 0 END) ready,
                    max(m.score) best, count(DISTINCT p.base_resume_name) resumes
             FROM resume_job_matches m
             JOIN resume_profiles p ON p.id = m.resume_profile_id
             JOIN keyword_jobs   j ON j.id = m.keyword_job_id
             WHERE p.is_test_account = 0
               AND j.posted_date BETWEEN ? AND ?
-            GROUP BY p.candidate_name ORDER BY tops DESC, matches DESC
+            GROUP BY p.candidate_name ORDER BY ready DESC, tops DESC
         """, (d_from.isoformat(), d_to.isoformat())).fetchall()]
 
 
@@ -69,7 +85,8 @@ def matches_for(candidate: str, resume: str | None, min_score: int,
         SELECT m.score, m.band, m.reason,
                p.base_resume_name, p.candidate_id, p.base_resume_id,
                j.id local_job_id, j.title, j.company_name, j.location,
-               j.posted_date, j.source_url, j.job_url, j.apply_url, j.source
+               j.posted_date, j.source_url, j.job_url, j.apply_url, j.source,
+               length(coalesce(j.description,'')) desc_len
         FROM resume_job_matches m
         JOIN resume_profiles p ON p.id = m.resume_profile_id
         JOIN keyword_jobs   j ON j.id = m.keyword_job_id
@@ -136,20 +153,30 @@ def render():
         )
         return
 
-    t1, t2, t3 = st.columns(3)
+    total = sum(r["matches"] for r in rows)
+    total_ready = sum(r["ready"] or 0 for r in rows)
+
+    t1, t2, t3, t4 = st.columns(4)
     t1.metric("Candidates with matches", len(rows))
-    t2.metric("Total matches", sum(r["matches"] for r in rows))
-    t3.metric("TOP_MATCH", sum(r["tops"] or 0 for r in rows))
+    t2.metric("Total matches", total)
+    t3.metric("Ready to send", total_ready,
+              help=f"Description of {MIN_DESCRIPTION}+ chars — enough to tailor a resume.")
+    t4.metric("Manual chase", total - total_ready,
+              help="Too thin to automate. Download them on the Manual Chase tab.")
 
     st.dataframe(
         [{"Candidate": r["candidate_name"], "Matches": r["matches"],
+          "Ready": r["ready"] or 0, "Chase": r["matches"] - (r["ready"] or 0),
           "Top": r["tops"] or 0, "Best": r["best"], "Resumes": r["resumes"]}
          for r in rows],
         use_container_width=True, hide_index=True,
         column_config={
-            "Matches": st.column_config.ProgressColumn(
-                "Matches", min_value=0,
-                max_value=max(r["matches"] for r in rows), format="%d"),
+            "Ready": st.column_config.ProgressColumn(
+                "Ready to send", min_value=0,
+                max_value=max(max(r["ready"] or 0 for r in rows), 1), format="%d"),
+            "Chase": st.column_config.NumberColumn(
+                "Manual chase", width="small",
+                help="Matched well but not automatable."),
         },
     )
 
@@ -187,14 +214,72 @@ def render():
         else:
             fresh.append(m)
 
-    s1, s2, s3 = st.columns(3)
-    s1.metric("In range", len(found))
-    s2.metric("New to Talentos", len(fresh))
-    s3.metric("Already applied", dupes, help="Hidden below — already in Talentos for this candidate.")
+    # The push skips anything under MIN_DESCRIPTION. Splitting here means the
+    # number on the Assign button is the number that actually arrives.
+    ready = [m for m in fresh if (m["desc_len"] or 0) >= MIN_DESCRIPTION]
+    thin = [m for m in fresh if (m["desc_len"] or 0) < MIN_DESCRIPTION]
 
-    if not fresh:
-        st.success("Everything in this range is already in Talentos for this candidate.")
+    # applications has a UNIQUE partial index on (candidate_id, job_id), so a
+    # candidate matched to one job by two of their own resumes yields ONE
+    # application, not two. The push resolves that to the best-scoring resume;
+    # mirror it here or the button promises more than arrives — Bhaskar's 64
+    # selectable rows would have produced 56 applications.
+    best: dict[tuple, dict] = {}
+    for m in sorted(ready, key=lambda r: -r["score"]):
+        key = (_norm(m["company_name"]), _norm(m["title"]))
+        best.setdefault(key, m)
+    collapsed = len(ready) - len(best)
+    ready = sorted(best.values(), key=lambda r: -r["score"])
+
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("In range", len(found))
+    s2.metric("Ready to send", len(ready))
+    s3.metric("Manual chase", len(thin),
+              help="Description too thin to tailor a resume from.")
+    s4.metric("Already applied", dupes,
+              help="Hidden below — already in Talentos for this candidate.")
+
+    if collapsed:
+        st.caption(
+            f"{collapsed} duplicate rows collapsed — the same job matched by more "
+            "than one of this candidate's resumes becomes a single application, "
+            "using their best-scoring resume."
+        )
+
+    if thin:
+        with st.expander(f"⬇  {len(thin)} need manual chasing — download for this candidate"):
+            st.caption(
+                "Matched well, but the description is truncated and the page could "
+                "not be recovered. Almost always Adzuna, which cuts off at ~500 "
+                "characters and gates its own links."
+            )
+            chase = exports.unpursued_rows(min_score=min_score, d_from=d_from,
+                                           d_to=d_to, candidate=candidate)
+            if chase:
+                st.download_button(
+                    f"Download {len(chase)} jobs for {candidate}",
+                    data=exports.build_workbook(chase),
+                    file_name=exports.filename(d_from, d_to),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"chase_{candidate}_{d_from}_{d_to}",
+                )
+            st.dataframe(
+                [{"Score": m["score"], "Title": m["title"], "Company": m["company_name"],
+                  "Chars": m["desc_len"], "Source": m["source"],
+                  "Link": m["source_url"] or m["apply_url"] or m["job_url"]}
+                 for m in thin],
+                use_container_width=True, hide_index=True, height=200,
+                column_config={"Link": st.column_config.LinkColumn("Link", display_text="open")},
+            )
+
+    if not ready:
+        st.warning(
+            "Nothing here can be automated — every match in this range is too "
+            "thin. Download the sheet above and chase them manually."
+        )
         return
+
+    fresh = ready
 
     # ---------- assignment ----------
     st.markdown("##### 4 · Assign")
@@ -224,6 +309,7 @@ def render():
         "Company": m["company_name"],
         "Location": m["location"],
         "Resume": m["base_resume_name"],
+        "Chars": m["desc_len"],
         "Why": (m["reason"] or "")[:120],
         "Link": m["source_url"] or m["apply_url"] or m["job_url"],
         "_job": m["local_job_id"],
@@ -237,6 +323,10 @@ def render():
             "Score": st.column_config.NumberColumn("Score", width="small"),
             "Band": st.column_config.TextColumn("Band", width="small"),
             "Posted": st.column_config.TextColumn("Posted", width="small"),
+            "Chars": st.column_config.NumberColumn(
+                "Chars", width="small",
+                help="Job description length. Every row here clears the "
+                     f"{MIN_DESCRIPTION}-char minimum."),
             "Link": st.column_config.LinkColumn("Link", display_text="open"),
             "Why": st.column_config.TextColumn("Why matched", width="large"),
             "_job": None,
@@ -259,8 +349,11 @@ def render():
     if go:
         from scripts.push_to_talentos import push, load_matches as lm
         job_ids = {r["_job"] for r in chosen}
-        payload = [m for m in lm(None, 75, 3650, per_candidate_cap=None)
-                   if m["local_job_id"] in job_ids and m["candidate_name"] == candidate]
+        # Scope the reload to this candidate — it used to load every match for
+        # every candidate and filter in Python.
+        payload = [m for m in lm(None, min_score, 3650, per_candidate_cap=None,
+                                 candidate=candidate)
+                   if m["local_job_id"] in job_ids]
         with st.spinner(f"Pushing {len(payload)} to Talentos…"):
             try:
                 from app.auth import actor_label

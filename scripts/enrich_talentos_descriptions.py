@@ -34,13 +34,13 @@ import psycopg
 
 from app import db
 from app.config import NEON_DB_URL
+from app.quality import DEAD_DOMAINS
+from app.quality import MIN_DESCRIPTION as MIN_GOOD
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("enrich")
 
-MIN_GOOD = 1500          # what we consider a usable description
 SOURCE_LABEL = "jobsearch_support"
-DEAD_DOMAINS = ("adzuna.com", "youtube.com", "facebook.com", "twitter.com")
 
 
 def norm(s: str | None) -> str:

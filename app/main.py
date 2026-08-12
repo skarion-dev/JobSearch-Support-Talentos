@@ -17,13 +17,19 @@ logout_button()
 st.title("Talentos JobSearch Support")
 st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by OpenCode Go (deepseek-v4-flash / deepseek-v4-pro)")
 
-tab_review, tab_dash, tab_chat, tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches = st.tabs(
-    ["Review & Assign", "Dashboard", "CEO Chat", "Scrape Control", "Readiness", "Jobs", "Keyword Jobs", "Resume Matches"]
+(tab_review, tab_chase, tab_dash, tab_chat,
+ tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches) = st.tabs(
+    ["Review & Assign", "Manual Chase", "Dashboard", "CEO Chat",
+     "Scrape Control", "Readiness", "Jobs", "Keyword Jobs", "Resume Matches"]
 )
 
 with tab_review:
     from app.review_tab import render as render_review
     render_review()
+
+with tab_chase:
+    from app.manual_chase_tab import render as render_chase
+    render_chase()
 
 with tab_dash:
     from app.dashboard_tab import render as render_dash

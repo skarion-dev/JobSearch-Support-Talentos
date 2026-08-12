@@ -3,6 +3,17 @@ Operations dashboard — what is still waiting for review, and what is going wro
 
 Every number is computed in SQL. The analyst agent only narrates them, so the
 charts and the summary can never disagree.
+
+OUTCOME TRACKING
+----------------
+The dashboard used to stop at "how many did we push". That is how 367 of 431
+applications sat at an ATS score of 0 without anything on screen going red: the
+pipeline was draining, the queue was empty, every stage looked healthy, and the
+resumes were blank. Volume told us nothing about quality.
+
+So the results section reads the scores back out of Talentos. An empty resume or
+a run of zeros is now a red banner, not something you find by looking at
+Talentos by hand a week later.
 """
 from datetime import date, timedelta
 
@@ -13,6 +24,11 @@ import streamlit as st
 
 from app import db
 from app.config import NEON_DB_URL
+from app.quality import MIN_DESCRIPTION
+
+# Talentos' own applications average 7.49. Below this we are underperforming
+# the manual pipeline we are supposed to be scaling.
+BASELINE_ATS = 7.49
 
 SEVERITY_ICON = {"high": "🔴", "medium": "🟠", "low": "🟡"}
 STATUS_BANNER = {
@@ -49,27 +65,105 @@ def talentos_pipeline() -> list[dict]:
 @st.cache_data(ttl=120)
 def pipeline_throughput() -> dict:
     """
-    Queue depth alone cannot distinguish 'stalled' from 'draining normally'.
-    Without this the analyst called a healthy pipeline critical while it was
-    clearing 34 workflows every 15 minutes.
+    Queue depth alone cannot distinguish 'stalled' from 'draining normally' from
+    'nothing to do'. Two false alarms came out of getting this wrong:
+
+      * a deep queue was called critical while it cleared 34 workflows per
+        15 minutes — that is draining, not stalled;
+      * an EMPTY queue was called critical because nothing had completed
+        recently — there was nothing left to complete.
+
+    A stall requires work that is not moving. Both conditions, decided here in
+    code rather than left to the model to infer.
     """
     with psycopg.connect(NEON_DB_URL) as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT
               count(*) FILTER (WHERE w.completed_at > now() - interval '15 minutes'),
               count(*) FILTER (WHERE w.completed_at > now() - interval '1 hour'),
-              max(w.completed_at)
+              max(w.completed_at),
+              count(*) FILTER (WHERE w.status IN ('queued','running'))
             FROM application_ai_workflows w
             JOIN applications a ON a.id = w.application_id
             WHERE a.source = 'jobsearch_support'
         """)
-        last15, last60, latest = cur.fetchone()
+        last15, last60, latest, waiting = cur.fetchone()
+
+    waiting = waiting or 0
+    draining = (last15 or 0) > 0
+    if waiting == 0:
+        status = "idle"          # nothing queued: healthy, not stalled
+    elif draining:
+        status = "draining"
+    else:
+        status = "stalled"
+
     return {
         "completed_last_15min": last15 or 0,
         "completed_last_hour": last60 or 0,
         "last_completion_at": latest,
-        "is_draining": (last15 or 0) > 0,
+        "waiting": waiting,
+        "is_draining": draining,
+        "is_stalled": status == "stalled",
+        "status": status,
+        "status_explanation": {
+            "idle": "Nothing queued — the pipeline has no work. This is healthy, "
+                    "NOT a stall. Do not report it as an issue.",
+            "draining": "Work is queued and completing normally. NOT a stall.",
+            "stalled": "Work is queued and nothing has completed recently. This "
+                       "is a Talentos dispatcher problem, not a sourcing problem.",
+        }[status],
     }
+
+
+@st.cache_data(ttl=120)
+def talentos_outcomes() -> list[dict]:
+    """
+    What the applications we pushed actually scored. The number that matters.
+
+    empty_resumes counts tailored resumes with no experience section — the
+    signature of a workflow queued without a config_snapshot, which produces a
+    header-and-skills skeleton and an ATS score of 0.
+    """
+    with psycopg.connect(NEON_DB_URL) as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT c.name,
+                   count(*) n,
+                   round(avg(v.ats_score)::numeric, 2) avg_ats,
+                   min(v.ats_score) min_ats,
+                   max(v.ats_score) max_ats,
+                   count(*) FILTER (WHERE v.ats_score = 0) zeros,
+                   count(*) FILTER (WHERE w.status = 'failed') failed,
+                   count(*) FILTER (WHERE w.status IN ('queued','running')) pending,
+                   count(*) FILTER (
+                       WHERE jsonb_array_length(
+                           coalesce(v.content->'experience', '[]'::jsonb)) = 0
+                   ) empty_resumes
+            FROM applications a
+            JOIN candidates c ON c.id = a.candidate_id
+            JOIN application_ai_workflows w ON w.application_id = a.id
+            LEFT JOIN application_resume_versions v ON v.id = a.tailored_resume_version_id
+            WHERE a.source = 'jobsearch_support'
+            GROUP BY c.name
+            ORDER BY avg_ats DESC NULLS LAST
+        """)
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def source_quality() -> pd.DataFrame:
+    """
+    Usable rate per source. Adzuna is 92% of the corpus and 9% of what can be
+    pushed; this chart is why the nightly cycle now leads with Apify.
+    """
+    with db.get_conn() as conn:
+        return pd.DataFrame([dict(r) for r in conn.execute(f"""
+            SELECT coalesce(source,'unknown') source, count(*) jobs,
+                   sum(CASE WHEN length(coalesce(description,'')) >= {MIN_DESCRIPTION}
+                            THEN 1 ELSE 0 END) usable,
+                   cast(avg(length(coalesce(description,''))) AS INT) avg_chars
+            FROM keyword_jobs GROUP BY source ORDER BY jobs DESC
+        """).fetchall()])
 
 
 def backlog() -> pd.DataFrame:
@@ -121,6 +215,18 @@ def build_metrics(df: pd.DataFrame) -> dict:
         if not df.empty else pd.DataFrame(columns=["candidate_name", "unreviewed", "top", "oldest_days"])
     )
 
+    outcomes = talentos_outcomes()
+    scored = [o for o in outcomes if o["avg_ats"] is not None]
+    pushed_total = sum(o["n"] for o in outcomes)
+    overall_ats = (
+        round(sum(float(o["avg_ats"]) * o["n"] for o in scored) / sum(o["n"] for o in scored), 2)
+        if scored else None
+    )
+
+    sq = source_quality()
+    usable_total = int(sq["usable"].sum()) if not sq.empty else 0
+    jobs_total = int(sq["jobs"].sum()) if not sq.empty else 0
+
     return {
         "total_unreviewed": int(len(df)),
         "candidates_with_backlog": int(by_cand.shape[0]),
@@ -131,8 +237,22 @@ def build_metrics(df: pd.DataFrame) -> dict:
         "queued_not_processed": sum(p["n"] for p in pipe if p["workflow"] == "queued"),
         "completed": sum(p["n"] for p in pipe if p["workflow"] == "completed"),
         "pipeline_throughput": flow,
+        "pipeline_status": flow["status"],
+        "pipeline_status_explanation": flow["status_explanation"],
         "pipeline_is_draining": flow["is_draining"],
+        "pipeline_is_stalled": flow["is_stalled"],
         "corpus_size": corpus,
+        # ---- quality, not just volume ----
+        "outcomes_by_candidate": outcomes,
+        "applications_pushed": pushed_total,
+        "overall_avg_ats": overall_ats,
+        "baseline_avg_ats": BASELINE_ATS,
+        "total_zero_scores": sum(o["zeros"] or 0 for o in outcomes),
+        "total_empty_resumes": sum(o["empty_resumes"] or 0 for o in outcomes),
+        "total_failed_workflows": sum(o["failed"] or 0 for o in outcomes),
+        "source_quality": sq.to_dict("records") if not sq.empty else [],
+        "corpus_usable": usable_total,
+        "corpus_usable_pct": round(100 * usable_total / jobs_total, 1) if jobs_total else 0,
     }
 
 
@@ -144,13 +264,35 @@ def render():
     metrics = build_metrics(df)
 
     # ---- headline metrics ----
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Awaiting review", metrics["total_unreviewed"])
     k2.metric("Candidates affected", metrics["candidates_with_backlog"])
     k3.metric("Stale (>7 days)", metrics["stale_over_7_days"],
               delta="needs action" if metrics["stale_over_7_days"] else None,
               delta_color="inverse")
     k4.metric("Queued in AI pipeline", metrics["queued_not_processed"])
+    ats = metrics["overall_avg_ats"]
+    k5.metric(
+        "Avg ATS achieved", ats if ats is not None else "—",
+        delta=(f"{ats - BASELINE_ATS:+.2f} vs Talentos" if ats is not None else None),
+        help=f"Talentos' own manual pipeline averages {BASELINE_ATS}.",
+    )
+
+    # Quality alarms come before anything else — a healthy-looking queue full of
+    # blank resumes is the exact failure this dashboard missed once already.
+    if metrics["total_empty_resumes"]:
+        st.error(
+            f"**{metrics['total_empty_resumes']} tailored resumes have no experience "
+            "section.** That means workflows were queued without a config_snapshot, "
+            "so the generator had nothing to tailor. Re-push those applications "
+            "rather than repairing them in place — repairs score 0–1, fresh pushes "
+            "score 8–9."
+        )
+    elif metrics["total_zero_scores"]:
+        st.warning(
+            f"{metrics['total_zero_scores']} applications scored 0 on ATS. "
+            "Check the resume versions before the AE reviews them."
+        )
 
     # ---- analyst summary ----
     st.divider()
@@ -267,16 +409,104 @@ def render():
                 use_container_width=True,
             )
         flow = metrics["pipeline_throughput"]
-        if metrics["queued_not_processed"] > 0 and not flow["is_draining"]:
+        if flow["status"] == "stalled":
             st.error(
-                f"{metrics['queued_not_processed']} queued and nothing completed in the "
-                "last 15 minutes — the Talentos dispatcher may be down. "
-                "That is a Talentos issue, not this pipeline."
+                f"{flow['waiting']} queued and nothing completed in the last 15 "
+                "minutes — the Talentos dispatcher may be down. That is a "
+                "Talentos issue, not this pipeline."
             )
-        elif flow["is_draining"]:
+        elif flow["status"] == "draining":
             st.success(
                 f"Pipeline is draining normally — {flow['completed_last_15min']} completed "
                 f"in the last 15 min ({flow['completed_last_hour']} in the last hour)."
+            )
+        else:
+            st.info("Nothing queued — every application this tool sent has finished processing.")
+
+    # ---- results: what the pushed applications actually scored ----
+    st.divider()
+    st.markdown("##### Results in Talentos")
+    st.caption(
+        "Quality of what we sent, not just how much. Read back from Talentos' "
+        "own resume versions."
+    )
+    outcomes = metrics["outcomes_by_candidate"]
+    if not outcomes:
+        st.caption("Nothing pushed yet.")
+    else:
+        o = pd.DataFrame(outcomes)
+        o["avg_ats"] = pd.to_numeric(o["avg_ats"], errors="coerce")
+        r1, r2 = st.columns([3, 2])
+        with r1:
+            st.dataframe(
+                o.rename(columns={
+                    "name": "Candidate", "n": "Sent", "avg_ats": "Avg ATS",
+                    "min_ats": "Min", "max_ats": "Max", "zeros": "Zeros",
+                    "failed": "Failed", "pending": "Pending",
+                    "empty_resumes": "Empty",
+                }),
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "Avg ATS": st.column_config.ProgressColumn(
+                        "Avg ATS", min_value=0, max_value=10, format="%.2f"),
+                    "Empty": st.column_config.NumberColumn(
+                        "Empty", help="Resumes with no experience section — always a bug."),
+                },
+            )
+        with r2:
+            chart = o.dropna(subset=["avg_ats"])
+            if chart.empty:
+                st.caption("No scores yet — workflows still running.")
+            else:
+                st.altair_chart(
+                    alt.Chart(chart).mark_bar().encode(
+                        x=alt.X("avg_ats:Q", title="Avg ATS", scale=alt.Scale(domain=[0, 10])),
+                        y=alt.Y("name:N", sort="-x", title=None),
+                        color=alt.condition(
+                            alt.datum.avg_ats >= BASELINE_ATS,
+                            alt.value("#2e7d32"), alt.value("#c62828")),
+                        tooltip=["name", "n", "avg_ats", "zeros", "failed"],
+                    ).properties(height=240)
+                    + alt.Chart(pd.DataFrame({"x": [BASELINE_ATS]})).mark_rule(
+                        strokeDash=[4, 4], color="grey").encode(x="x:Q"),
+                    use_container_width=True,
+                )
+                st.caption(f"Dashed line: Talentos' own average ({BASELINE_ATS}).")
+
+    # ---- sourcing quality: why half the matches cannot be automated ----
+    st.divider()
+    st.markdown("##### Sourcing quality")
+    sq = pd.DataFrame(metrics["source_quality"])
+    if sq.empty:
+        st.caption("No jobs ingested yet.")
+    else:
+        sq["usable_pct"] = (100 * sq["usable"] / sq["jobs"]).round(1)
+        q1, q2 = st.columns([2, 3])
+        with q1:
+            st.metric("Corpus usable", f"{metrics['corpus_usable_pct']}%",
+                      help=f"Jobs with a description of {MIN_DESCRIPTION}+ chars — "
+                           "the rest cannot be tailored and go to Manual Chase.")
+            st.dataframe(
+                sq.rename(columns={"source": "Source", "jobs": "Jobs",
+                                   "usable": "Usable", "usable_pct": "%",
+                                   "avg_chars": "Avg chars"}),
+                use_container_width=True, hide_index=True,
+            )
+        with q2:
+            st.altair_chart(
+                alt.Chart(sq).mark_bar().encode(
+                    x=alt.X("usable_pct:Q", title="% usable", scale=alt.Scale(domain=[0, 100])),
+                    y=alt.Y("source:N", sort="-x", title=None),
+                    color=alt.Color("avg_chars:Q", title="Avg chars",
+                                    scale=alt.Scale(scheme="greens")),
+                    tooltip=["source", "jobs", "usable", "usable_pct", "avg_chars"],
+                ).properties(height=200),
+                use_container_width=True,
+            )
+            st.caption(
+                "Adzuna truncates at ~500 characters and gates its own links, so "
+                "almost none of its volume can be pushed. The nightly cycle leads "
+                "with Apify for this reason."
             )
 
     # ---- underserved ----

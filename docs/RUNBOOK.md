@@ -47,16 +47,39 @@ Register on Windows:
 schtasks /Create /TN JobSearchNightly /TR "powershell -ExecutionPolicy Bypass -File C:\JobSearch-Support-Talentos\nightly.ps1" /SC DAILY /ST 00:00 /RU <user> /F
 ```
 
-Runs sync → keywords → ingest → enrich → match → report, then stops. It does
-**not** write to Talentos. Output goes to `daily_cycle.log`.
+Runs sync → keywords → ingest → enrich → match → export → report, then stops.
+It does **not** write to Talentos. Output goes to `daily_cycle.log`.
+
+The last two lines of the log are the ones to read:
+
+```
+READY TO SEND: 405 of 780 matches across 7 candidates
+automatable rate: 52% (375 for manual chase)
+```
+
+A falling automatable rate means the sourcing mix has drifted back towards
+truncated sources — check the Sourcing quality panel on the Dashboard.
 
 ### Manual — each morning
 
 1. Open http://localhost:3100 → **Review & Assign**
 2. Pick a candidate, optionally filter to one base resume, set a minimum score
-3. Tick the matches worth sending
+3. Tick the matches worth sending — every row shown can actually be sent; the
+   thin ones are separated into their own expander
 4. Choose an AE from the live roster
 5. **Assign** — creates the applications and queues them in the AI pipeline
+6. → **Manual Chase**, download the Excel, hand it to whoever chases by hand
+7. → **Dashboard**, check *Avg ATS achieved* is above 7.49 and *Empty* is 0
+
+### The one number that matters after a push
+
+**Avg ATS achieved**, on the Dashboard. Volume tells you nothing: 431
+applications once sat at an average of 0.27 with 367 zeros while every queue
+and stage looked perfectly healthy, because the resumes were blank.
+
+If **Empty** is above 0, workflows were queued without a `config_snapshot`.
+**Re-push those applications rather than repairing them** — measured, repairs
+score 0–1 and fresh pushes score 8–9.
 
 ---
 
@@ -74,8 +97,15 @@ Runs sync → keywords → ingest → enrich → match → report, then stops. I
 | Preview a push (no writes) | `python -m scripts.push_to_talentos --limit 20` |
 | Execute a push | `python -m scripts.push_to_talentos --limit 20 --commit` |
 | Enforce one candidate per job | `python -m scripts.deduplicate_candidate_jobs --commit` |
+| Manual-chase Excel | `python -m scripts.export_unpursued` |
+| …for one candidate, last week | `python -m scripts.export_unpursued --days 7 --candidate "Bhaskar Roy"` |
+| Start the app from anywhere | `python run_app.py` |
+| Check Apify credit across the pool | `python -c "import app.config; from app.agents.aggregators.apify_jobs import probe_pool; print(probe_pool())"` |
 
 Every write path is dry-run by default. `--commit` is always required.
+
+`run_app.py` exists because `streamlit run app/main.py` only works from the repo
+root — anywhere else every `from app import ...` fails with `ModuleNotFoundError`.
 
 ---
 
@@ -114,6 +144,11 @@ issue, not this repo's.
 | `CreditsError` from OpenCode | Using `/zen/v1` (pay-per-credit) instead of `/zen/go/v1` | Fix `OPENCODE_BASE_URL` |
 | Adzuna 429 | Daily quota spent | Rotation handles it; add a third account via `ADZUNA_APP_ID_3` |
 | LinkedIn actor 400 | Invalid `publishedAt` | Only `r86400`/`r604800`/`r2592000` are accepted; code snaps to these |
+| LinkedIn actor 400 `maxItems must be >= 150` | Testing with a small `--max-items` | The actor has a hard floor; `min_items` in the actor spec now clamps it automatically |
+| Apify 403 `Monthly usage hard limit exceeded` | That free tier is spent | Expected — `probe_pool()` retires spent tokens before the first real call. A spent token still authenticates, so only `/users/me/limits` reveals it |
+| `No APIFY_TOKEN_* configured` despite a full `.env` | Import order — the token module read `os.environ` before `load_dotenv` ran | Fixed; tokens load lazily. Import `app.config` first if writing a bare script |
+| Dashboard says "pipeline stalled" with 0 queued | Analyst inferring a stall from no recent completions | Fixed; `pipeline_status` is computed in SQL as idle/draining/stalled and an empty queue is `idle` |
+| Assign button sends fewer than it promised | Thin descriptions or duplicate resume matches | Fixed; the UI now applies both filters, and a consistency check confirms UI count == push count |
 | Indeed returns 0 rows | OR-joined keyword list | Indeed must be driven one keyword per run (`--chunk 1`, already the default) |
 | `InvalidColumnReference` on push | `ON CONFLICT` missing the partial-index predicate | Already fixed; the transaction rolls back cleanly with no partial writes |
 | Search engine 429 during enrichment | Too many concurrent searches | Throttle is process-wide; keep `--workers` ≤ 6 |
