@@ -8,6 +8,8 @@ Reads/writes gateway/gateway.db directly, same as gateway_issue_key.py.
     python -m scripts.gateway_admin disable --id 2
     python -m scripts.gateway_admin enable  --id 2
     python -m scripts.gateway_admin revoke  --id 2
+    python -m scripts.gateway_admin set-models --id 2 --models all
+    python -m scripts.gateway_admin set-models --id 2 --models deepseek-v4-flash,grok-4.5
     python -m scripts.gateway_admin kill-switch --off      # stop ALL traffic
     python -m scripts.gateway_admin kill-switch --on
 """
@@ -15,6 +17,7 @@ import argparse
 import json
 
 from gateway import store
+from gateway.config import ALLOWED_MODELS
 from gateway.keys import pool
 
 
@@ -33,6 +36,24 @@ def cmd_keys():
         print(f"  {k['prefix']:<14} {flag:<8} "
               f"{('reason=' + str(k['dead_reason'])) if k['dead'] else ''}"
               f"{('cooldown=' + str(k['cooldown_seconds_left']) + 's') if k['cooling_down'] else ''}")
+
+
+def cmd_set_models(client_id: int, models: str):
+    if models.strip().lower() == "all":
+        requested = sorted(ALLOWED_MODELS)
+    else:
+        requested = sorted({m.strip() for m in models.split(",") if m.strip()})
+
+    unknown = set(requested) - ALLOWED_MODELS
+    if unknown:
+        print(f"Not on the gateway's own allowlist, dropped: {sorted(unknown)}")
+    valid = sorted(set(requested) & ALLOWED_MODELS)
+    if not valid:
+        print(f"No valid models given. Gateway allows: {sorted(ALLOWED_MODELS)}")
+        return
+
+    ok = store.set_client_models(client_id, valid)
+    print(f"client #{client_id} models -> {valid}" if ok else "no such client")
 
 
 def cmd_stats(hours: int):
@@ -59,6 +80,10 @@ if __name__ == "__main__":
     p_dis.add_argument("--id", type=int, required=True)
     p_rev = sub.add_parser("revoke")
     p_rev.add_argument("--id", type=int, required=True)
+    p_sm = sub.add_parser("set-models")
+    p_sm.add_argument("--id", type=int, required=True)
+    p_sm.add_argument("--models", required=True,
+                      help="Comma-separated model IDs, or 'all' for the gateway's full allowlist")
     p_kill = sub.add_parser("kill-switch")
     g = p_kill.add_mutually_exclusive_group(required=True)
     g.add_argument("--on", action="store_true")
@@ -77,6 +102,8 @@ if __name__ == "__main__":
         print("ok" if store.set_client_enabled(a.id, False) else "no such client")
     elif a.cmd == "revoke":
         print("ok" if store.revoke_client(a.id) else "no such client")
+    elif a.cmd == "set-models":
+        cmd_set_models(a.id, a.models)
     elif a.cmd == "kill-switch":
         store.set_global_enabled(a.on)
         print(f"global_enabled = {a.on}")

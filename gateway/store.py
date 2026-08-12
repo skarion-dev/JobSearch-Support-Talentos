@@ -124,6 +124,19 @@ def revoke_client(client_id: int) -> bool:
         return cur.rowcount > 0
 
 
+def set_client_models(client_id: int, allowed_models: list[str]) -> bool:
+    """Widening gateway/config.py's ALLOWED_MODELS does not by itself widen
+    what an already-issued token can call -- the effective set is this
+    column intersected against that constant at request time. This is the
+    only way to change it for a token that already exists."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE gateway_clients SET allowed_models = ? WHERE id = ?",
+            (json.dumps(allowed_models), client_id),
+        )
+        return cur.rowcount > 0
+
+
 # --------------------------------------------------------------- requests --
 
 def log_request(client_id: int, model: str, status: str, http_status: int | None,

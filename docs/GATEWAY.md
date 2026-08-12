@@ -29,12 +29,21 @@ everything.
 The gateway is the one thing standing between "a token" and "the whole
 subscription":
 
-- **Model allowlist, enforced in code.** `GET /v1/models` returns only
-  `gpt-5.6-luna`, `deepseek-v4-flash`, `deepseek-v4-pro` — the three this
-  system actually uses. `POST /v1/chat/completions` 403s anything else, no
-  matter what a caller asks for. Same convention as `app/filters.py`'s
-  location gates: rules live in code, not in a prompt or a gentleman's
-  agreement.
+- **Model allowlist, enforced in code.** `GET /v1/models` returns whatever
+  `gateway/config.py`'s `ALLOWED_MODELS` currently permits — widened
+  2026-08-12 to the full OpenCode Go catalogue (25 models) rather than the
+  original 3, since there was no longer a reason to block models the
+  subscription already pays for. `POST /v1/chat/completions` 403s anything
+  outside that set, no matter what a caller asks for. Same convention as
+  `app/filters.py`'s location gates: rules live in code, not in a prompt or a
+  gentleman's agreement.
+
+  This is two layers, not one: the global `ALLOWED_MODELS` ceiling, and each
+  issued client token's own `allowed_models` in `gateway.db`, intersected at
+  request time. Widening the global set does **not** widen what an
+  already-issued token can call — that needs
+  `scripts.gateway_admin set-models --id <n> --models all` per client. New
+  tokens issued without an explicit `--models` get the full set automatically.
 - **Key rotation**, so a 429 on one OpenCode key fails over to the next
   instead of stalling whatever's running.
 - **Per-client tokens**, independent of the upstream key, each with its own

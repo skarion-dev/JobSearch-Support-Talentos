@@ -4,16 +4,21 @@ LLM gateway — OpenAI-compatible proxy in front of the OpenCode Go subscription
 Runs on the spare PC, one process, port 8787 by default. Two kinds of callers:
 
   * /v1/*      any issued client token (Talentos, this app, future callers).
-               Sees and can request ONLY gpt-5.6-luna, deepseek-v4-flash,
-               deepseek-v4-pro — see gateway/config.py ALLOWED_MODELS. Nothing
-               else in the OpenCode catalogue is reachable through here.
+               Sees and can request whatever gateway/config.py's ALLOWED_MODELS
+               currently permits (the full OpenCode Go catalogue as of the
+               2026-08-12 widening) INTERSECTED with that specific client's
+               own allowed_models in gateway.db. Widening the global set does
+               not widen an already-issued token — see
+               scripts.gateway_admin's set-models command.
   * /admin/*   a single admin secret (GATEWAY_ADMIN_TOKEN), for issuing and
                managing client tokens and flipping the kill switch.
 
 Why this exists rather than pointing callers at OpenCode directly: a leaked
-OpenCode key spends the whole subscription on whatever the leaker wants: a
-leaked gateway token spends it on three named, rate-limited, revocable models
-and every call is attributed and logged.
+OpenCode key spends the whole subscription with no record of who did it or on
+what; a leaked gateway token is rate-limited, has a daily budget, is
+revocable without touching the real credential, and every call is attributed
+and logged. The model allowlist widened to the full catalogue on 2026-08-12 —
+the boundary that matters now is the token, not the model list.
 
     uvicorn gateway.main:app --host 127.0.0.1 --port 8787 --workers 1
 
