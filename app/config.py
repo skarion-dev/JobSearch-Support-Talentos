@@ -3,9 +3,28 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "")
-# OpenCode Go subscription (not Zen pay-per-credit) uses the /zen/go/v1 path
-OPENCODE_BASE_URL = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/go/v1")
+# Raw OpenCode Go credentials — used directly only when the gateway isn't
+# configured (see below). OpenCode Go subscription (not Zen pay-per-credit)
+# uses the /zen/go/v1 path.
+_RAW_OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "")
+_RAW_OPENCODE_BASE_URL = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/go/v1")
+
+# LLM gateway (gateway/main.py) — a proxy that pools OpenCode keys, enforces
+# a 3-model allowlist, and rate-limits/logs every caller, including this app.
+# When both are set, every agent below talks to the gateway instead of
+# OpenCode directly, using a gateway-issued client token (see
+# scripts/gateway_issue_key.py --name jobsearch-app), NOT the raw OpenCode
+# key above. Left unset, everything falls back to calling OpenCode directly
+# exactly as before — so a workstation without a gateway still works.
+GATEWAY_URL = os.getenv("GATEWAY_URL", "")
+GATEWAY_KEY = os.getenv("GATEWAY_KEY", "")
+
+if GATEWAY_URL and GATEWAY_KEY:
+    OPENCODE_API_KEY = GATEWAY_KEY
+    OPENCODE_BASE_URL = GATEWAY_URL
+else:
+    OPENCODE_API_KEY = _RAW_OPENCODE_API_KEY
+    OPENCODE_BASE_URL = _RAW_OPENCODE_BASE_URL
 
 # Scraper agents (bulk, cost-sensitive): deepseek-v4-flash
 SCRAPER_MODEL = os.getenv("OPENCODE_SCRAPER_MODEL", "deepseek-v4-flash")

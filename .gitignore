@@ -11,3 +11,10 @@ venv/
 # Manual-chase workbooks: candidate names, scores and links. Never publish.
 data/exports/
 *.xlsx
+
+# Gateway's own DB holds client token hashes and per-client request logs.
+gateway/*.db
+gateway/*.db-wal
+gateway/*.db-shm
+gateway_out.log
+gateway_err.log

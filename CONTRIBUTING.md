@@ -1,8 +1,10 @@
 # Contributing
 
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the system fits
-together and [docs/RUNBOOK.md](docs/RUNBOOK.md) for how to operate it. This
-file is about working on the code safely.
+together, [docs/RUNBOOK.md](docs/RUNBOOK.md) for how to operate it, and
+[docs/GATEWAY.md](docs/GATEWAY.md) for the LLM gateway (`gateway/`) that
+proxies OpenCode Go for this app and, eventually, Talentos. This file is
+about working on the code safely.
 
 ---
 
@@ -73,12 +75,17 @@ app/
     link_finder.py         web search, no LLM
     ats_detectors.py       Greenhouse/Lever/Workday/... public APIs, no LLM
     aggregators/           Adzuna and Apify clients
+gateway/                  OpenAI-compatible proxy in front of OpenCode Go —
+                          model allowlist, key rotation, per-client limits.
+                          See docs/GATEWAY.md.
 scripts/
   daily_cycle.py            the nightly orchestrator
   push_to_talentos.py       the only write path
   deduplicate_candidate_jobs.py
+  gateway_issue_key.py      issue a gateway client token
+  gateway_admin.py          list/enable/disable/revoke clients, kill switch
   ...
-docs/                       architecture, runbook, measured pipeline plan
+docs/                       architecture, runbook, gateway, measured pipeline plan
 ```
 
 ---

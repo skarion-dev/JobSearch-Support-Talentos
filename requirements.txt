@@ -8,3 +8,8 @@ python-dotenv>=1.0
 pydantic>=2.9
 altair>=5.0
 openpyxl>=3.1
+
+# gateway/ — local LLM proxy in front of OpenCode Go
+fastapi>=0.115
+uvicorn[standard]>=0.32
+httpx>=0.27

@@ -207,7 +207,8 @@ reachable from the LAN or the internet except through Cloudflare.
 |---|---|---|
 | Streamlit app | Scheduled task `JobSearchApp` (ONSTART) | binds 127.0.0.1 only |
 | Cloudflare Tunnel | Scheduled task `CloudflareTunnel` (ONSTART) | tunnel `jobsearch` |
-| Nightly cycle | Scheduled task `JobSearchNightly` (00:00) | on the main PC |
+| Nightly cycle | Scheduled task `JobSearchNightly` (00:00) | on the spare PC |
+| LLM gateway | Scheduled task `LLMGateway` (ONSTART) | binds 127.0.0.1:8787 only — see [docs/GATEWAY.md](GATEWAY.md) |
 
 The tunnel runs as a scheduled task rather than a Windows service. The service
 installer produced a service with no arguments and would not retain a binPath
