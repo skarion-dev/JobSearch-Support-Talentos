@@ -42,6 +42,7 @@ import logging
 import os
 import time
 import traceback
+from datetime import datetime
 
 from app import db
 from app.quality import MIN_DESCRIPTION
@@ -103,11 +104,24 @@ def s2_keywords(n_keywords: int):
     keywords, reasoning = choose_keywords(n=n_keywords)
     log.info(f"strategist chose {len(keywords)} keywords")
     log.info(f"rationale: {reasoning}")
-    with open(ROI_PATH.replace("roi_keywords", "tonight_keywords"), "w",
-              encoding="utf-8", newline="") as f:
+
+    tonight_csv = ROI_PATH.replace("roi_keywords", "tonight_keywords")
+    with open(tonight_csv, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["keyword"])
         w.writerows([[k] for k in keywords])
+
+    # Luna's rationale had nowhere to live but the log file -- the Keywords
+    # tab reads this to show *why* tonight's set was chosen, not just what.
+    import json
+    with open(tonight_csv.replace(".csv", ".json"), "w", encoding="utf-8") as f:
+        json.dump({
+            "chosen_at": datetime.now().isoformat(timespec="seconds"),
+            "n_requested": n_keywords,
+            "n_chosen": len(keywords),
+            "reasoning": reasoning,
+        }, f, indent=2)
+
     return keywords
 
 

@@ -80,7 +80,9 @@ def render():
         return
 
     today_str = date.today().isoformat()
-    st.caption(f"{sum(len(r) for r in by_day.values())} runs across {len(by_day)} days")
+    n_runs, n_days = sum(len(r) for r in by_day.values()), len(by_day)
+    st.caption(f"{n_runs} run{'s' if n_runs != 1 else ''} across "
+               f"{n_days} day{'s' if n_days != 1 else ''}")
 
     for day, runs in by_day.items():
         label = f"{day} — today" if day == today_str else day

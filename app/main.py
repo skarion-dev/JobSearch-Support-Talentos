@@ -20,7 +20,7 @@ st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by Op
 (tab_review, tab_chase, tab_archive, tab_dash, tab_chat,
  tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches) = st.tabs(
     ["Review & Assign", "Manual Chase", "Export Archive", "Dashboard", "CEO Chat",
-     "Scrape Control", "Readiness", "Jobs", "Keyword Jobs", "Resume Matches"]
+     "Scrape Control", "Readiness", "Jobs", "Keywords", "Resume Matches"]
 )
 
 with tab_review:
@@ -215,90 +215,8 @@ with tab_jobs:
             st.write(job.get("description") or "No description captured for this job.")
 
 with tab_keywords:
-    st.subheader("Keyword-driven job search (USA-wide, Talentos keyword export)")
-    st.caption(
-        "Searched from data/keywords.csv via Adzuna, independent of the company list above. "
-        "Run `python -m scripts.keyword_search` to refresh."
-    )
-
-    kstats = db.keyword_job_stats()
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Total keyword jobs", kstats["total_keyword_jobs"])
-    k2.metric("Keywords with hits", kstats["keywords_with_hits"])
-    k3.metric("With direct source link", kstats["with_source_url"])
-    st.caption(
-        "Adzuna's own link is gated behind a login wall, so 'Source link' is found via "
-        "web search (title + company) instead — run `python -m scripts.backfill_source_links` to refresh."
-    )
-
-    with db.get_conn() as conn:
-        krows = conn.execute(
-            """
-            SELECT keyword, title, company_name, location, remote, salary,
-                   posted_date, job_url, source_url, description, scraped_at
-            FROM keyword_jobs
-            ORDER BY (posted_date IS NULL), posted_date DESC, scraped_at DESC
-            """
-        ).fetchall()
-        all_keywords = [r["keyword"] for r in conn.execute(
-            "SELECT DISTINCT keyword FROM keyword_jobs ORDER BY keyword"
-        ).fetchall()]
-
-    krows = [dict(r) for r in krows]
-
-    if not krows:
-        st.info("No keyword jobs yet. Run scripts.keyword_search first.")
-    else:
-        kc1, kc2 = st.columns([1, 2])
-        with kc1:
-            keyword_filter = st.multiselect("Filter by keyword", all_keywords)
-        with kc2:
-            ksearch = st.text_input("Search title or company", key="kw_search")
-
-        kfiltered = krows
-        if keyword_filter:
-            kfiltered = [r for r in kfiltered if r["keyword"] in keyword_filter]
-        if ksearch:
-            s = ksearch.lower()
-            kfiltered = [
-                r for r in kfiltered
-                if s in (r["title"] or "").lower() or s in (r["company_name"] or "").lower()
-            ]
-
-        st.caption(f"{len(kfiltered)} of {len(krows)} jobs")
-
-        kdisplay = [
-            {
-                "Keyword": r["keyword"],
-                "Title": r["title"],
-                "Company": r["company_name"],
-                "Location": r["location"],
-                "Posted": r["posted_date"] or "Unknown",
-                "Remote": "Yes" if r["remote"] else ("" if r["remote"] is None else "No"),
-                "Salary": r["salary"],
-                "Adzuna Link": r["job_url"],
-                "Source Link": r["source_url"],
-            }
-            for r in kfiltered
-        ]
-
-        st.dataframe(
-            kdisplay,
-            use_container_width=True,
-            column_config={
-                "Adzuna Link": st.column_config.LinkColumn("Adzuna Link", display_text="Open ->"),
-                "Source Link": st.column_config.LinkColumn("Source Link", display_text="Open ->"),
-            },
-            hide_index=True,
-        )
-
-        st.divider()
-        st.subheader("Keyword hit-rate breakdown")
-        with db.get_conn() as conn:
-            breakdown = conn.execute(
-                "SELECT keyword, count(*) n FROM keyword_jobs GROUP BY keyword ORDER BY n DESC"
-            ).fetchall()
-        st.dataframe([dict(r) for r in breakdown], use_container_width=True, hide_index=True)
+    from app.keywords_tab import render as render_keywords
+    render_keywords()
 
 with tab_matches:
     import json as _json
