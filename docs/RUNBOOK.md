@@ -259,6 +259,24 @@ exactly what took `jobs.skarion.com` and `llm.skarion.com` both down for
 hours on 2026-08-12. The watchdog turns that into a sub-3-minute self-heal
 regardless of who or what caused it.
 
+**All five tasks (`CloudflareTunnel`, `JobSearchApp`, `LLMGateway`,
+`Watchdog`, `JobSearchNightly`) must use `LogonType: S4U`, not the
+`Interactive` default `schtasks /Create` leaves them at.** `Interactive`
+means the task only runs while someone is actually logged into the desktop —
+`schtasks /Run` over SSH against an `Interactive` task reports `SUCCESS` and
+does nothing, silently, with no error anywhere and `LastRunTime` never
+advancing. That is what turned the 2026-08-12 outage from a quick restart
+into a multi-hour one: the restart command kept "succeeding" while nothing
+came back. Check with:
+
+```powershell
+(Get-ScheduledTask -TaskName CloudflareTunnel).Principal.LogonType   # must print S4U
+```
+
+Fix with `New-ScheduledTaskPrincipal -UserId <user> -LogonType S4U -RunLevel Highest`
+piped into `Set-ScheduledTask` — this needs no stored password, unlike
+`Password` logon type.
+
 ```bash
 schtasks /Create /TN Watchdog /TR "powershell -ExecutionPolicy Bypass -File C:\JobSearch-Support-Talentos\deploy\watchdog.ps1" /SC MINUTE /MO 3 /RU <user> /F
 ```
