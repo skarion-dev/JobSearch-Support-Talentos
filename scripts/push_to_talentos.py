@@ -40,9 +40,11 @@ import re
 from collections import defaultdict
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from app import db
 from app.config import NEON_DB_URL
+from app.talentos_workflow import prepare_workflow_payload
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("push")
@@ -220,11 +222,14 @@ def push(matches: list[dict], commit: bool, ae_user_id: str | None = None,
                     INSERT INTO target_jobs (candidate_id, job_id, raw_description, fit_score,
                                              recommendation, created_by)
                     VALUES (%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (candidate_id, job_id) DO NOTHING
+                    ON CONFLICT (candidate_id, job_id) DO UPDATE
+                        SET fit_score = EXCLUDED.fit_score
+                    RETURNING id
                     """,
                     (p["candidate_id"], job_id, p["description"], p["score"], p["band"], ae_id),
                 )
-                created["target_jobs"] += cur.rowcount
+                target_job_id = cur.fetchone()[0]
+                created["target_jobs"] += 1
 
                 key = idem_key(str(p["candidate_id"]), str(job_id))
                 cur.execute(
@@ -280,16 +285,40 @@ def push(matches: list[dict], commit: bool, ae_user_id: str | None = None,
                 )
                 created["events"] += 1
 
+                # The generator reads the resume out of config_snapshot. Without
+                # it, it emits an empty skeleton and the ATS score is 0 — that is
+                # what happened on the first push. Seed the version and build the
+                # snapshot exactly as the Talentos service does.
+                version_id, snapshot = prepare_workflow_payload(
+                    cur, p["candidate_id"], p["base_resume_id"], job_id,
+                    target_job_id, actor_id=ae_id,
+                )
+                if not snapshot:
+                    # No resume content to tailor: leave the application for a
+                    # human rather than queueing a run that must fail.
+                    cur.execute(
+                        "UPDATE applications SET resume_generation_status='not_started' WHERE id=%s",
+                        (app_id,),
+                    )
+                    created["skipped_no_resume_content"] += 1
+                    continue
+
+                cur.execute(
+                    "UPDATE applications SET tailored_resume_version_id=%s WHERE id=%s",
+                    (version_id, app_id),
+                )
                 cur.execute(
                     """
                     INSERT INTO application_ai_workflows
                         (application_id, base_resume_id, status, idempotency_key,
-                         started_by, match_score, match_reason)
-                    VALUES (%s,%s,'queued',%s,%s,%s,%s)
+                         started_by, match_score, match_reason, config_snapshot)
+                    VALUES (%s,%s,'queued',%s,%s,%s,%s,%s)
                     """,
-                    (app_id, p["base_resume_id"], key, ae_id, p["score"], p["reason"][:500]),
+                    (app_id, p["base_resume_id"], key, ae_id, p["score"],
+                     p["reason"][:500], Jsonb(snapshot)),
                 )
                 created["ai_workflows"] += 1
+                created["resume_versions_seeded"] += 1
 
             conn.commit()
             log.info("--- COMMITTED ---")
