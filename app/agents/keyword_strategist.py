@@ -29,7 +29,10 @@ from app.config import OPENCODE_API_KEY, OPENCODE_BASE_URL, STRATEGIST_MODEL
 
 log = logging.getLogger("keyword_strategist")
 
-client = OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL)
+# max_retries above the SDK default: this is the one call gating the entire
+# night's ingest (see daily_cycle.s2_keywords), so it's worth a few extra
+# attempts against a transient blip before giving up.
+client = OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL, max_retries=5)
 
 SYSTEM = """You are the keyword strategist for Skarion's job-sourcing pipeline.
 

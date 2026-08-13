@@ -18,3 +18,7 @@ gateway/*.db-wal
 gateway/*.db-shm
 gateway_out.log
 gateway_err.log
+
+# Nightly-regenerated keyword selection - runtime output, not source
+data/tonight_keywords.csv
+data/tonight_keywords.json

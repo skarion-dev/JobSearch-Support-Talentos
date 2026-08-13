@@ -100,10 +100,30 @@ def s1_sync():
 
 @stage("2 choose keywords")
 def s2_keywords(n_keywords: int):
+    """
+    A single failed LLM call here used to cost the entire night: main() treats
+    an empty keyword list as "nothing to search" and skips stage 3 (ingest)
+    outright, so a transient OpenCode connection blip silently produced zero
+    new jobs for the whole cycle — exactly what happened on 2026-08-13.
+
+    Falling back to the top N by measured ROI (data/roi_keywords.csv, already
+    on disk, no network needed) means a strategist failure costs optimality,
+    not the night. It's a worse keyword set than Luna would have chosen, but
+    a real one — ingestion still runs.
+    """
     from app.agents.keyword_strategist import choose_keywords
-    keywords, reasoning = choose_keywords(n=n_keywords)
-    log.info(f"strategist chose {len(keywords)} keywords")
-    log.info(f"rationale: {reasoning}")
+    try:
+        keywords, reasoning = choose_keywords(n=n_keywords)
+        log.info(f"strategist chose {len(keywords)} keywords")
+        log.info(f"rationale: {reasoning}")
+    except Exception as e:
+        log.warning(f"strategist call failed ({e}) — falling back to top "
+                    f"{n_keywords} by measured ROI so ingest still runs")
+        import csv as _csv
+        with open(ROI_PATH, encoding="utf-8") as f:
+            keywords = [r["keyword"] for r in _csv.DictReader(f)][:n_keywords]
+        reasoning = f"FALLBACK (strategist call failed: {e}) — top {len(keywords)} by measured ROI, no LLM involved."
+        log.info(f"fallback selected {len(keywords)} keywords")
 
     tonight_csv = ROI_PATH.replace("roi_keywords", "tonight_keywords")
     with open(tonight_csv, "w", encoding="utf-8", newline="") as f:
