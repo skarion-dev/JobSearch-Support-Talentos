@@ -130,6 +130,7 @@ def to_job(result: dict) -> dict:
         "description": result.get("description"),
         "salary": salary,
         "remote": None,
+        "source": "adzuna",
     }
 
 

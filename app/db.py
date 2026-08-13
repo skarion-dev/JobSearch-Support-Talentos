@@ -185,14 +185,23 @@ def readiness_stats():
 
 
 def upsert_keyword_jobs(keyword: str, jobs: list[dict]) -> int:
+    """
+    source defaults to 'could not determine' rather than NULL. A silent NULL
+    here meant every Adzuna-sourced row (11,006 of them, historically) was
+    invisible to anything grouping by source — the sourcing-quality dashboard,
+    the nightly yield log — and crashed a naive `f'{source:<16}'` format the
+    moment one showed up. A named "we don't know" is honest and doesn't blow
+    up downstream code the way a bare None does.
+    """
     inserted = 0
     with get_conn() as conn:
         for job in jobs:
             cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO keyword_jobs
-                    (keyword, title, company_name, location, remote, salary, description, job_url, posted_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (keyword, title, company_name, location, remote, salary, description,
+                     job_url, posted_date, source, source_url, external_job_id, apply_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     keyword,
@@ -204,6 +213,10 @@ def upsert_keyword_jobs(keyword: str, jobs: list[dict]) -> int:
                     job.get("description"),
                     job.get("job_url"),
                     job.get("posted_date"),
+                    job.get("source") or "could not determine",
+                    job.get("source_url"),
+                    job.get("external_job_id"),
+                    job.get("apply_url"),
                 ),
             )
             inserted += cur.rowcount

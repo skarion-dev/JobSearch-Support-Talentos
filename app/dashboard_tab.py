@@ -156,7 +156,7 @@ def source_quality() -> pd.DataFrame:
     """
     with db.get_conn() as conn:
         return pd.DataFrame([dict(r) for r in conn.execute(f"""
-            SELECT coalesce(source,'unknown') source, count(*) jobs,
+            SELECT coalesce(source,'could not determine') source, count(*) jobs,
                    sum(CASE WHEN length(coalesce(description,'')) >= {MIN_DESCRIPTION}
                             THEN 1 ELSE 0 END) usable,
                    cast(avg(length(coalesce(description,''))) AS INT) avg_chars
