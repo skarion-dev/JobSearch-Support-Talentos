@@ -11,9 +11,20 @@
 # Python install; the moment that changed, it broke silently.
 #
 # Fixed to be self-locating (works from wherever the file physically sits)
-# and to fail loudly: any error here now exits non-zero and writes to a log
-# whose directory is guaranteed to exist, so a break is visible in Task
-# Scheduler's last-result column instead of masquerading as success.
+# and to fail loudly via exit code — but NOT via $ErrorActionPreference=Stop
+# around the python invocation itself. Python's logging.StreamHandler writes
+# routine INFO lines to stderr; PowerShell's *>> redirect pulls that in as
+# its error stream, and under "Stop" preference each line gets promoted to a
+# terminating error. The wrapper "fails" after the very first log line while
+# the underlying python.exe keeps running, orphaned, blocked writing to a
+# broken pipe — alive in Task Manager, making zero progress, forever. Verified
+# by reproducing it: caught after exactly one log line, process still
+# resident and stuck at the first pipeline stage minutes later.
+#
+# So: Stop for the wrapper's own setup cmdlets (a missing python.exe or an
+# uncreatable log directory should fail loudly), Continue once the actual
+# long-running process starts, and $LASTEXITCODE — not stream content — is
+# what decides success or failure.
 #
 # Duplicates across runs are fine: dedupe on external_job_id/apply_url/
 # source_url/company+title, and pushes are idempotent, so a repeated pull
@@ -32,9 +43,12 @@ try {
     $env:PYTHONIOENCODING = "utf-8"
     Set-Location $Root
 
+    $ErrorActionPreference = "Continue"
     & $Py -m scripts.daily_cycle --keywords 500 --workers 100 *>> $LogFile
-    exit $LASTEXITCODE
+    $code = $LASTEXITCODE
+    if ($code -ne 0) { throw "daily_cycle.py exited with code $code" }
 } catch {
     "$(Get-Date -Format o)  WRAPPER FAILED: $_" | Out-File -Append $LogFile
     exit 1
 }
+exit 0
