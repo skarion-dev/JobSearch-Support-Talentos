@@ -30,14 +30,48 @@ close. Borderline gaps are deliberately let through to the LLM, which now
 also gets the candidate's real computed years in the prompt instead of
 nothing.
 
-candidate_years is computed once per resume (sync_resume_profiles.py) from
-content.experience[].startDate/endDate — every base resume already carries
-this, it was simply never read by anything in the matching pipeline.
+RECALIBRATED 2026-08-14, operator feedback from real outcomes
+---------------------------------------------------------------
+Two corrections, from real interview evidence, not theory:
+
+  1. "Most companies are not strict on years." Maahir (1.1 years raw tenure)
+     was already getting real interviews for postings stated as needing
+     2-5 years — because he holds a Bachelor's, and "degree substitutes for
+     experience" (e.g. "Bachelor's + 2 years, OR equivalent") is a standard,
+     common hiring pattern, not an edge case. TOLERANCE_YEARS raised
+     1.5 -> 3.0, and education_bonus() below adds effective years for a
+     degree — generalizes automatically to every candidate with one, not
+     just Maahir.
+
+  2. Najiur computes to 6.1 years — the most senior of anyone on the roster
+     by raw tenure — but operator judgment from real placement attempts is
+     that he is weaker in practice than his years suggest, and should be
+     steered toward roles wanting LESS experience, not more. No resume
+     field can encode this — it is the opposite of what his credentials
+     (he also holds a Master's) would suggest on paper. This is exactly
+     what candidate_resume_search_profiles.additional_rules and
+     LOCATION_GATES already exist for: operator knowledge the data can't
+     show. See EXPERIENCE_OVERRIDES in sync_resume_profiles.py.
+
+candidate_years is computed once per resume (sync_resume_profiles.py) as
+years_of_experience() + education_bonus(), or an EXPERIENCE_OVERRIDES entry
+when the operator has explicitly overridden it. Work history alone comes
+from content.experience[].startDate/endDate, present on every base resume
+and never read by anything before this fix existed.
 """
 import re
 from datetime import date, datetime
 
-TOLERANCE_YEARS = 1.5
+TOLERANCE_YEARS = 3.0
+
+# "Bachelor's + N years, or equivalent combination of education and
+# experience" is standard phrasing in real postings — a degree substitutes
+# for some amount of raw tenure. Master's/PhD implies the bachelor's too,
+# so this takes the highest match, never sums across degrees.
+BACHELORS_RE = re.compile(r"\bbachelor", re.IGNORECASE)
+ADVANCED_DEGREE_RE = re.compile(r"\b(master|ph\.?d\.?|doctorate|mba)\b", re.IGNORECASE)
+BACHELORS_BONUS_YEARS = 1.0
+ADVANCED_DEGREE_BONUS_YEARS = 2.0
 
 # Titles that imply a seniority floor even with no explicit "X years" stated.
 # Split from "manager" because that word is used more loosely across
@@ -120,6 +154,27 @@ def years_of_experience(content: dict | None) -> float | None:
 
     total_months = sum(e - s for s, e in merged)
     return round(total_months / 12, 1)
+
+
+def education_bonus(content: dict | None) -> float:
+    """
+    Effective-years credit for holding a degree, reflecting "Bachelor's + N
+    years, OR equivalent" — standard phrasing in real postings. Highest
+    degree only, never summed (a Master's implies the Bachelor's).
+    Returns 0.0 rather than None: no degree found is a real, countable
+    answer here, unlike years_of_experience() where no dates means no data.
+    """
+    if not isinstance(content, dict):
+        return 0.0
+    degrees = " | ".join(
+        str(e.get("degree") or "") for e in (content.get("education") or [])
+        if isinstance(e, dict)
+    )
+    if ADVANCED_DEGREE_RE.search(degrees):
+        return ADVANCED_DEGREE_BONUS_YEARS
+    if BACHELORS_RE.search(degrees):
+        return BACHELORS_BONUS_YEARS
+    return 0.0
 
 
 def required_years(title: str | None, description: str | None) -> float | None:

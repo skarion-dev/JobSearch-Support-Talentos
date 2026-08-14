@@ -110,7 +110,7 @@ PROMPT_TEMPLATE = """You are TalentOS Active Base Resume Job Matcher, evaluating
 
 CANDIDATE PROFILE:
 - Base resume: {base_resume_name}
-- Years of experience (computed from resume dates): {years_experience}
+- Years of experience (effective estimate — work history + education credit): {years_experience}
 - Target roles: {target_roles}
 - Work authorization: {work_authorization}
 - Location preference: {location_preference} (open to relocation: {open_to_relocation})

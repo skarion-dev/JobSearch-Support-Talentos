@@ -15,7 +15,19 @@ import json
 import psycopg
 from app import db
 from app.config import NEON_DB_URL
-from app.experience import years_of_experience
+from app.experience import education_bonus, years_of_experience
+
+# Operator override, per candidate — for cases no resume field can encode.
+# Najiur computes to 6.1 raw years (the most senior on the roster) and holds
+# a Master's, so a formula would push him MORE senior, not less. Real-world
+# placement judgment (2026-08-14): he is weaker in practice than his years
+# suggest and should be steered toward roles wanting LESS experience. This
+# overrides the computed years_of_experience()+education_bonus() entirely —
+# it is not a formula input, it is operator knowledge the data can't show.
+# Revisit/remove if that assessment changes.
+EXPERIENCE_OVERRIDES = {
+    "Mir Najiur Rahman": 2.5,
+}
 
 # Masterprompt section 5: test accounts are active in the snapshot but excluded
 # from production runs unless the operator explicitly includes them.
@@ -77,6 +89,17 @@ SELECT id, candidate_id, base_resume_id, keywords, additional_rules,
 FROM candidate_resume_search_profiles
 WHERE base_resume_id = ANY(%s) AND disabled_at IS NULL
 """
+
+
+def _effective_years(candidate_name: str, content: dict | None) -> float | None:
+    """years_of_experience() + education_bonus(), unless the operator has
+    explicitly overridden this candidate — see EXPERIENCE_OVERRIDES above."""
+    if candidate_name in EXPERIENCE_OVERRIDES:
+        return EXPERIENCE_OVERRIDES[candidate_name]
+    raw = years_of_experience(content)
+    if raw is None:
+        return None
+    return round(raw + education_bonus(content), 1)
 
 
 def main():
@@ -239,7 +262,7 @@ def main():
                     1 if ready else 0,
                     1 if is_test_account else 0,
                     LOCATION_GATES.get(candidate["name"]),
-                    years_of_experience(resume.get("content")),
+                    _effective_years(candidate["name"], resume.get("content")),
                 ),
             )
 
