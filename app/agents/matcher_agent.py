@@ -10,7 +10,12 @@ import re
 from openai import OpenAI
 from app.config import LLM_CONFIG
 from app.experience import TOLERANCE_YEARS, passes_experience_gate
-from app.filters import passes_location_gate
+from app.filters import (
+    clearance_eligible,
+    is_intern_or_trainee,
+    passes_location_gate,
+    requires_clearance,
+)
 
 log = logging.getLogger("matcher_agent")
 
@@ -69,7 +74,14 @@ def prefilter(profile: dict, jobs: list[dict]) -> list[dict]:
     max_years = _rule_max_years(rules_text)
     reject_senior = _rule_says_reject_senior(rules_text)
     gate = profile.get("location_gate")
-    candidate_years = profile.get("years_experience")
+    effective_years = profile.get("years_experience")
+    # Falls back to effective when the raw column hasn't been synced yet, which
+    # keeps the title check strict rather than silently disabling it.
+    raw_years = profile.get("years_experience_raw")
+    if raw_years is None:
+        raw_years = effective_years
+    can_hold_clearance = clearance_eligible(
+        profile.get("work_authorization"), profile.get("visa_status"))
 
     jobs = _dedupe(jobs)
 
@@ -86,13 +98,23 @@ def prefilter(profile: dict, jobs: list[dict]) -> list[dict]:
         # senior/lead/principal/staff/director/manager in the title, because
         # only 4 of 18 profiles ever had additional_rules text specific
         # enough to trigger the check below, and the LLM's own rubric only
-        # weighted this at 10 of ~100 points. candidate_years is computed
-        # from actual resume dates (app/experience.py), not hand-typed, so
-        # this applies to every profile automatically. Tolerant by design —
-        # only fires on a gap bigger than TOLERANCE_YEARS, so a candidate
-        # close to a "Senior" posting's implied floor still reaches the LLM
-        # rather than being auto-rejected on a title word alone.
-        if candidate_years is not None and not passes_experience_gate(candidate_years, title, desc):
+        # weighted this at 10 of ~100 points. Years are computed from actual
+        # resume dates (app/experience.py), not hand-typed, so this applies
+        # to every profile automatically. Tolerant by design, and asymmetric:
+        # a stated "X years" is measured against education-boosted years, a
+        # Senior/Lead title against RAW years — see passes_experience_gate.
+        if raw_years is not None and not passes_experience_gate(
+                raw_years, title, desc, effective_years=effective_years):
+            continue
+
+        # Unwinnable regardless of fit: an EAD/H-1B/OPT candidate cannot hold
+        # a US federal clearance, and the scorer will happily return 90+ on
+        # one anyway if the skills line up.
+        if not can_hold_clearance and requires_clearance(title, desc):
+            continue
+
+        # Student-gated, short-term, usually residency-restricted.
+        if is_intern_or_trainee(title):
             continue
 
         if reject_senior and SENIOR_TERMS.search(title_lower):

@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS resume_profiles (
     is_test_account INTEGER DEFAULT 0, -- masterprompt s.5: excluded from production runs
     synced_at TEXT DEFAULT (datetime('now')),
     location_gate TEXT,          -- app/filters.py GATES key; machine-enforced, not advisory
-    years_experience REAL,       -- computed from resume content.experience[]; app/experience.py
+    years_experience REAL,       -- EFFECTIVE: work history + education credit; app/experience.py
+    years_experience_raw REAL,   -- work history only; senior TITLES are judged against this
     UNIQUE(base_resume_id)
 );
 

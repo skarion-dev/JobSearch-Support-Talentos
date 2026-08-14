@@ -64,6 +64,16 @@ from datetime import date, datetime
 
 TOLERANCE_YEARS = 3.0
 
+# A stated "5+ years" is a soft number employers routinely bend — hence the
+# generous TOLERANCE_YEARS above. A Senior/Lead/Principal TITLE is not a
+# number at all; it is a categorical statement about the level of the role,
+# and no amount of "they're not strict" makes a 1.6-year candidate a senior
+# hire. Verified against the audit: at the shared 3.0 tolerance, Mahbubul
+# (3.8 raw) still cleared "Network Architect & Team Lead" — 1.2 short of the
+# 5.0 floor and well inside 3.0. At 1.0 it correctly fails, while someone at
+# 4.5 raw years still reaches a "Senior" posting as a genuine judgment call.
+TITLE_TOLERANCE_YEARS = 1.0
+
 # "Bachelor's + N years, or equivalent combination of education and
 # experience" is standard phrasing in real postings — a degree substitutes
 # for some amount of raw tenure. Master's/PhD implies the bachelor's too,
@@ -177,40 +187,77 @@ def education_bonus(content: dict | None) -> float:
     return 0.0
 
 
-def required_years(title: str | None, description: str | None) -> float | None:
-    """
-    The job's own implied experience floor: an explicit 'X years experience'
-    figure if one is stated, else a title-based floor for senior/lead/
-    principal/staff/director/manager titles, else None (no signal at all —
-    the gate must not fire on a None).
-    """
+def stated_years(title: str | None, description: str | None) -> float | None:
+    """An explicit 'X years experience' figure from the posting, or None."""
     text = f"{title or ''} {(description or '')[:1000]}"
     nums = [int(n) for n in YEARS_EXPERIENCE_RE.findall(text)]
     plausible = [n for n in nums if 0 < n <= 20]
-    explicit = min(plausible) if plausible else None
+    return float(min(plausible)) if plausible else None
 
-    title_floor = None
+
+def title_implied_years(title: str | None) -> float | None:
+    """The seniority floor a Senior/Lead/Principal/Staff/Director/Manager
+    title implies on its own, or None when the title carries no such signal."""
     if SENIOR_TITLE_RE.search(title or ""):
-        title_floor = SENIOR_TITLE_YEARS_FLOOR
-    elif MANAGER_TITLE_RE.search(title or ""):
-        title_floor = MANAGER_TITLE_YEARS_FLOOR
-
-    if explicit is not None and title_floor is not None:
-        return max(explicit, title_floor)
-    return explicit if explicit is not None else title_floor
+        return SENIOR_TITLE_YEARS_FLOOR
+    if MANAGER_TITLE_RE.search(title or ""):
+        return MANAGER_TITLE_YEARS_FLOOR
+    return None
 
 
-def passes_experience_gate(candidate_years: float | None, title: str | None,
+def required_years(title: str | None, description: str | None) -> float | None:
+    """Whichever floor is higher. Kept for reporting/dashboard use; the gate
+    itself deliberately checks the two floors against different numbers —
+    see passes_experience_gate."""
+    stated = stated_years(title, description)
+    implied = title_implied_years(title)
+    if stated is not None and implied is not None:
+        return max(stated, implied)
+    return stated if stated is not None else implied
+
+
+def passes_experience_gate(raw_years: float | None, title: str | None,
                            description: str | None,
-                           tolerance: float = TOLERANCE_YEARS) -> bool:
+                           tolerance: float = TOLERANCE_YEARS,
+                           effective_years: float | None = None,
+                           title_tolerance: float = TITLE_TOLERANCE_YEARS) -> bool:
     """
-    Fails open on missing signal (no computed candidate years, or nothing in
-    the posting implying a seniority floor) — this gate only fires on
-    positive evidence of a real gap, same philosophy as passes_location_gate.
+    Two floors, checked against two DIFFERENT candidate numbers under two
+    DIFFERENT tolerances. Both asymmetries are the point:
+
+      stated "X years experience"  ->  EFFECTIVE years, tolerance 3.0
+          "Bachelor's + 2 years, OR equivalent combination of education and
+          experience" is standard posting language, and employers bend a
+          stated number routinely. A degree really does substitute here,
+          which is why Maahir (1.1 raw) was landing real interviews for
+          postings asking 2-5 years.
+
+      Senior/Lead/Principal title  ->  RAW years, tolerance 1.0
+          A degree does not make someone a senior hire, and a title is
+          categorical rather than a negotiable number. Getting either half
+          wrong is what put Tahsin (1.6 RAW years) on "Senior ASIC Design
+          Engineer @ NVIDIA" and Mahbubul (3.8 raw) on "Network Architect &
+          Team Lead" — 55 such rows in one night's audit, every one a
+          desk-reject.
+
+    effective_years defaults to raw_years when not supplied, so an older
+    caller passing a single number keeps the stricter behaviour rather than
+    silently loosening.
+
+    Fails open on missing signal, same philosophy as passes_location_gate:
+    only fires on positive evidence of a real gap.
     """
-    if candidate_years is None:
+    if raw_years is None:
         return True
-    req = required_years(title, description)
-    if req is None:
-        return True
-    return (req - candidate_years) <= tolerance
+    if effective_years is None:
+        effective_years = raw_years
+
+    implied = title_implied_years(title)
+    if implied is not None and (implied - raw_years) > title_tolerance:
+        return False
+
+    stated = stated_years(title, description)
+    if stated is not None and (stated - effective_years) > tolerance:
+        return False
+
+    return True

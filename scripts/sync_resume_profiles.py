@@ -91,6 +91,16 @@ WHERE base_resume_id = ANY(%s) AND disabled_at IS NULL
 """
 
 
+def _raw_years(candidate_name: str, content: dict | None) -> float | None:
+    """Work history only, no education credit. Senior/Lead/Principal TITLES
+    are judged against this — a degree substitutes for a stated years
+    requirement, not for the seniority ladder. An operator override still
+    wins, since it encodes real placement judgment about the person."""
+    if candidate_name in EXPERIENCE_OVERRIDES:
+        return EXPERIENCE_OVERRIDES[candidate_name]
+    return years_of_experience(content)
+
+
 def _effective_years(candidate_name: str, content: dict | None) -> float | None:
     """years_of_experience() + education_bonus(), unless the operator has
     explicitly overridden this candidate — see EXPERIENCE_OVERRIDES above."""
@@ -241,8 +251,8 @@ def main():
                      target_roles, work_authorization, visa_status, verified_skills,
                      location_preference, open_to_relocation, keywords, additional_rules,
                      review_status, generation_status, is_match_ready, is_test_account,
-                     location_gate, years_experience)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     location_gate, years_experience, years_experience_raw)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(candidate["id"]),
@@ -263,6 +273,7 @@ def main():
                     1 if is_test_account else 0,
                     LOCATION_GATES.get(candidate["name"]),
                     _effective_years(candidate["name"], resume.get("content")),
+                    _raw_years(candidate["name"], resume.get("content")),
                 ),
             )
 

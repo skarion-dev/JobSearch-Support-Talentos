@@ -101,6 +101,88 @@ def trim_to_top_n(profile_id: int, top_n: int):
         )
 
 
+def collapse_within_candidate() -> int:
+    """
+    One row per (candidate, job), keeping the best-scoring resume file.
+
+    Matching runs per resume FILE, so a candidate with three files can match
+    the same job three times. applications has a unique index on
+    (candidate_id, job_id) — the push collapses these to one application
+    anyway — but leaving them in the local table inflates every count shown
+    to an operator and, worse, lets a job filtered out of one file survive
+    under another. An audit found 25 such rows, including senior-titled ones
+    that a gate had already rejected elsewhere.
+    """
+    with db.get_conn() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM resume_job_matches
+            WHERE id NOT IN (
+                SELECT keep_id FROM (
+                    SELECT m.id AS keep_id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY p.candidate_id, m.keyword_job_id
+                               ORDER BY m.score DESC, m.id ASC
+                           ) AS rn
+                    FROM resume_job_matches m
+                    JOIN resume_profiles p ON p.id = m.resume_profile_id
+                ) WHERE rn = 1
+            )
+            """
+        )
+        return cur.rowcount
+
+
+def resolve_cross_candidate_contention() -> int:
+    """
+    One candidate per job, decided here rather than left in the shortlist.
+
+    Several candidates share a discipline — the CAD/drafting cluster all draft
+    with AutoCAD/Civil 3D — so a job that fits one tends to fit all of them.
+    An audit of a single night found 67 jobs claimed by 2-3 candidates each
+    ("AutoCad Drafter @ MANTECH" wanted by three). Sending the same opening for
+    several people through one agency weakens every submission, and
+    scripts/deduplicate_candidate_jobs.py already enforces this — but only
+    AFTER the applications exist in Talentos. Doing it here means the operator
+    never sees the same job offered three times in Review & Assign.
+
+    Winner is highest score, ties broken toward whoever is carrying fewer
+    matches so load stays spread — the same order deduplicate_candidate_jobs
+    uses once rows are live.
+    """
+    with db.get_conn() as conn:
+        rows = [dict(r) for r in conn.execute("""
+            SELECT m.id match_id, m.score, m.keyword_job_id,
+                   p.candidate_id, p.candidate_name
+            FROM resume_job_matches m
+            JOIN resume_profiles p ON p.id = m.resume_profile_id
+        """).fetchall()]
+
+    by_job = defaultdict(list)
+    for r in rows:
+        by_job[r["keyword_job_id"]].append(r)
+
+    load = defaultdict(int)
+    for r in rows:
+        load[r["candidate_id"]] += 1
+
+    losers = []
+    for _job_id, claims in by_job.items():
+        if len(claims) < 2:
+            continue
+        winner = sorted(claims, key=lambda c: (-c["score"], load[c["candidate_id"]]))[0]
+        for c in claims:
+            if c["match_id"] != winner["match_id"]:
+                losers.append(c["match_id"])
+                load[c["candidate_id"]] -= 1
+
+    if losers:
+        with db.get_conn() as conn:
+            conn.executemany("DELETE FROM resume_job_matches WHERE id=?",
+                             [(m,) for m in losers])
+    return len(losers)
+
+
 def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: bool,
          pool_size: int, posted_days: int | None = None):
     profiles = load_profiles(include_test=include_test)
@@ -154,6 +236,15 @@ def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: boo
     for p in profiles:
         trim_to_top_n(p["id"], top_n)
         log.info(f"{p['candidate_name']} / {p['base_resume_name']}: {min(done_counts[p['id']], top_n)} kept")
+
+    collapsed = collapse_within_candidate()
+    if collapsed:
+        log.info(f"collapsed {collapsed} duplicate rows where one candidate matched "
+                 f"the same job under more than one of their own resume files")
+
+    contested = resolve_cross_candidate_contention()
+    if contested:
+        log.info(f"resolved {contested} cross-candidate claims — one candidate per job")
 
     elapsed = time.time() - t0
     log.info(f"Done in {elapsed:.0f}s. {len(units)} batches, run_id={run_id}")

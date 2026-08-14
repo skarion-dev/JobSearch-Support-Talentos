@@ -25,10 +25,20 @@ NON_US_HINTS = (
 
 STATE_PATTERN = re.compile(r"\b(" + "|".join(US_STATE_ABBR) + r")\b")
 
+# CJK / Cyrillic in a company or title is a non-US posting whose LOCATION
+# string still looked American. An FPGA role at カールストルツ・エンドスコピー・
+# ジャパン（株） reached a candidate's shortlist this way — location alone said
+# nothing disqualifying, so the text itself has to be checked too.
+NON_LATIN_RE = re.compile(r"[　-鿿＀-￯Ѐ-ӿ]")
 
-def is_us_job(location: str | None) -> bool:
+
+def is_us_job(location: str | None, title: str | None = None,
+              company: str | None = None) -> bool:
     """Strict allowlist: only pass jobs with a clear US signal, reject everything else."""
     if not location:
+        return False
+
+    if NON_LATIN_RE.search(f"{title or ''} {company or ''}"):
         return False
 
     loc = location.strip().lower()
@@ -46,7 +56,45 @@ def is_us_job(location: str | None) -> bool:
 
 
 def filter_us_jobs(jobs: list[dict]) -> list[dict]:
-    return [j for j in jobs if is_us_job(j.get("location"))]
+    return [j for j in jobs
+            if is_us_job(j.get("location"), j.get("title"), j.get("company_name"))]
+
+
+# --- unwinnable / low-value postings ----------------------------------------
+# Both enforced in code rather than left to the scorer: an LLM reading "TS/SCI
+# required" against a strong skills match will still hand back 90+, and a
+# 13%-of-shortlist audit showed exactly that happening.
+
+CLEARANCE_RE = re.compile(
+    r"\b(ts/sci|top\s+secret|secret\s+clearance|security\s+clearance|"
+    r"polygraph|q\s+clearance|active\s+clearance)\b", re.IGNORECASE)
+
+# Recorded authorizations that make a US federal clearance realistic. Anything
+# else on this roster (EAD, H-1B, OPT, or simply unrecorded) cannot hold one,
+# so those postings are an AE's time spent on a guaranteed rejection.
+CLEARANCE_ELIGIBLE_AUTH = re.compile(r"\b(citizen|us\s*citizen|green\s*card|permanent\s*resident)\b",
+                                     re.IGNORECASE)
+
+INTERN_RE = re.compile(r"\b(intern|internship|trainee|co-op|apprentice)\b", re.IGNORECASE)
+
+
+def requires_clearance(title: str | None, description: str | None) -> bool:
+    text = f"{title or ''} {(description or '')[:2000]}"
+    return bool(CLEARANCE_RE.search(text))
+
+
+def clearance_eligible(work_authorization: str | None, visa_status: str | None) -> bool:
+    """Conservative: only an explicitly recorded citizen/green-card status
+    qualifies. Unrecorded (NULL upstream for most of this roster) is treated
+    as ineligible — the cost of wrongly skipping one posting is far lower
+    than an AE working a req the candidate legally cannot hold."""
+    return bool(CLEARANCE_ELIGIBLE_AUTH.search(f"{work_authorization or ''} {visa_status or ''}"))
+
+
+def is_intern_or_trainee(title: str | None) -> bool:
+    """Low value for a placement business: student-gated, short-term, and
+    usually residency-restricted."""
+    return bool(INTERN_RE.search(title or ""))
 
 
 # --- regional gates ---------------------------------------------------------

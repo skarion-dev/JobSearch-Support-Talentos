@@ -28,6 +28,7 @@ def _migrate(conn):
     migrations = [
         "ALTER TABLE resume_profiles ADD COLUMN location_gate TEXT",
         "ALTER TABLE resume_profiles ADD COLUMN years_experience REAL",
+        "ALTER TABLE resume_profiles ADD COLUMN years_experience_raw REAL",
     ]
     for stmt in migrations:
         try:

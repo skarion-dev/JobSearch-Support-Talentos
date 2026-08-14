@@ -24,7 +24,7 @@ import streamlit as st
 
 from app import db
 from app.config import NEON_DB_URL
-from app.experience import TOLERANCE_YEARS, required_years
+from app.experience import TITLE_TOLERANCE_YEARS, title_implied_years
 from app.quality import MIN_DESCRIPTION
 from app.talentos_state import fetch_logged_state, is_logged
 
@@ -181,7 +181,9 @@ def seniority_quality() -> dict:
     """
     with db.get_conn() as conn:
         rows = [dict(r) for r in conn.execute("""
-            SELECT p.years_experience, j.title, m.score, m.band
+            SELECT p.years_experience,
+                   coalesce(p.years_experience_raw, p.years_experience) years_raw,
+                   j.title, m.score, m.band
             FROM resume_job_matches m
             JOIN resume_profiles p ON p.id = m.resume_profile_id
             JOIN keyword_jobs   j ON j.id = m.keyword_job_id
@@ -189,10 +191,13 @@ def seniority_quality() -> dict:
               AND p.years_experience IS NOT NULL
         """).fetchall()]
 
+    # Mirrors passes_experience_gate: a Senior/Lead TITLE is measured against
+    # RAW years at the tighter title tolerance, not against education-boosted
+    # years at the loose stated-number tolerance.
     violations = []
     for r in rows:
-        req = required_years(r["title"], None)
-        if req is not None and (req - r["years_experience"]) > TOLERANCE_YEARS:
+        implied = title_implied_years(r["title"])
+        if implied is not None and (implied - r["years_raw"]) > TITLE_TOLERANCE_YEARS:
             violations.append(r)
 
     return {
