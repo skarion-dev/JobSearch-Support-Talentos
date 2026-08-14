@@ -5,11 +5,14 @@ deterministic validation -> rank. Report-only: never writes to Talentos,
 only to the local keyword_jobs/resume_profiles derived tables.
 """
 import json
+import logging
 import re
 from openai import OpenAI
 from app.config import LLM_CONFIG
 from app.experience import TOLERANCE_YEARS, passes_experience_gate
 from app.filters import passes_location_gate
+
+log = logging.getLogger("matcher_agent")
 
 BATCH_SIZE = 25
 TOP_MATCH_MIN = 85
@@ -20,6 +23,12 @@ YEARS_RE = re.compile(r"(\d+)\+?\s*(?:to\s*\d+\s*)?years?", re.IGNORECASE)
 
 client = OpenAI(api_key=LLM_CONFIG["api_key"], base_url=LLM_CONFIG["base_url"])
 MODEL = LLM_CONFIG["model"].removeprefix("openai/")
+# Same rate ($0.14 in / $0.28 out per 1M tokens) as MODEL, so this is a free
+# fallback, not a cost tradeoff. Used when MODEL itself is unavailable —
+# rate-limited, over a gateway's daily budget, or erroring — rather than
+# silently returning zero matches for the whole batch, which is what
+# score_batch used to do on any exception at all.
+FALLBACK_MODEL = "mimo-v2.5"
 
 
 def _rule_says_reject_senior(rules_text: str | None) -> bool:
@@ -172,16 +181,23 @@ def score_batch(profile: dict, jobs: list[dict]) -> list[dict]:
         jobs_json=json.dumps(jobs_compact),
     )
 
-    try:
-        resp = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-        )
-        data = json.loads(resp.choices[0].message.content)
-        matches = data.get("matches", [])
-    except Exception:
+    data = None
+    for model in (MODEL, FALLBACK_MODEL):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(resp.choices[0].message.content)
+            break
+        except Exception as e:
+            log.warning(f"{model} failed ({e}); "
+                        f"{'trying ' + FALLBACK_MODEL if model == MODEL else 'giving up'}")
+
+    if data is None:
         return []
+    matches = data.get("matches", [])
 
     valid_ids = {j["id"] for j in jobs}
     results = []
