@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS resume_profiles (
     is_match_ready INTEGER DEFAULT 0,  -- approved + current profile_version per masterprompt rule 4
     is_test_account INTEGER DEFAULT 0, -- masterprompt s.5: excluded from production runs
     synced_at TEXT DEFAULT (datetime('now')),
+    location_gate TEXT,          -- app/filters.py GATES key; machine-enforced, not advisory
+    years_experience REAL,       -- computed from resume content.experience[]; app/experience.py
     UNIQUE(base_resume_id)
 );
 

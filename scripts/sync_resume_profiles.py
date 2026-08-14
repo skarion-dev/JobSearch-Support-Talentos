@@ -15,6 +15,7 @@ import json
 import psycopg
 from app import db
 from app.config import NEON_DB_URL
+from app.experience import years_of_experience
 
 # Masterprompt section 5: test accounts are active in the snapshot but excluded
 # from production runs unless the operator explicitly includes them.
@@ -136,6 +137,27 @@ def main():
                 out.append(t)
         return out
 
+    def target_roles_from_resume(resume: dict) -> list[str]:
+        """
+        Talentos' own base_resumes.target_roles is empty for every resume in
+        this roster — the matcher prompt asks the model "Target roles: []"
+        every single time, a dead field worse than not asking at all. Resume
+        content already lists experience most-recent-first (standard resume
+        convention, same assumption keywords_from_resume relies on), so the
+        candidate's own recent job titles are a real, free substitute.
+        """
+        provided = list(resume.get("target_roles") or [])
+        if provided:
+            return provided
+        content = resume.get("content")
+        if not isinstance(content, dict):
+            return []
+        titles = [
+            str(e["title"]) for e in (content.get("experience") or [])
+            if isinstance(e, dict) and e.get("title")
+        ]
+        return titles[:2]
+
     profiled_resume_ids = {p["base_resume_id"] for p in profiles}
     for r in resumes:
         if r["id"] in profiled_resume_ids:
@@ -196,15 +218,15 @@ def main():
                      target_roles, work_authorization, visa_status, verified_skills,
                      location_preference, open_to_relocation, keywords, additional_rules,
                      review_status, generation_status, is_match_ready, is_test_account,
-                     location_gate)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     location_gate, years_experience)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(candidate["id"]),
                     candidate["name"],
                     str(resume["id"]),
                     resume["name"],
-                    json.dumps(list(resume.get("target_roles") or [])),
+                    json.dumps(target_roles_from_resume(resume)),
                     candidate.get("work_authorization"),
                     candidate.get("visa_status"),
                     json.dumps(list(candidate.get("verified_skills") or [])),
@@ -217,6 +239,7 @@ def main():
                     1 if ready else 0,
                     1 if is_test_account else 0,
                     LOCATION_GATES.get(candidate["name"]),
+                    years_of_experience(resume.get("content")),
                 ),
             )
 

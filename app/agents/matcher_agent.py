@@ -8,6 +8,7 @@ import json
 import re
 from openai import OpenAI
 from app.config import LLM_CONFIG
+from app.experience import TOLERANCE_YEARS, passes_experience_gate
 from app.filters import passes_location_gate
 
 BATCH_SIZE = 25
@@ -59,6 +60,7 @@ def prefilter(profile: dict, jobs: list[dict]) -> list[dict]:
     max_years = _rule_max_years(rules_text)
     reject_senior = _rule_says_reject_senior(rules_text)
     gate = profile.get("location_gate")
+    candidate_years = profile.get("years_experience")
 
     jobs = _dedupe(jobs)
 
@@ -70,6 +72,19 @@ def prefilter(profile: dict, jobs: list[dict]) -> list[dict]:
         title = (job.get("title") or "")
         desc = (job.get("description") or "")
         title_lower = title.lower()
+
+        # Same class of gate as location: 81 of 611 live TOP_MATCH rows had
+        # senior/lead/principal/staff/director/manager in the title, because
+        # only 4 of 18 profiles ever had additional_rules text specific
+        # enough to trigger the check below, and the LLM's own rubric only
+        # weighted this at 10 of ~100 points. candidate_years is computed
+        # from actual resume dates (app/experience.py), not hand-typed, so
+        # this applies to every profile automatically. Tolerant by design —
+        # only fires on a gap bigger than TOLERANCE_YEARS, so a candidate
+        # close to a "Senior" posting's implied floor still reaches the LLM
+        # rather than being auto-rejected on a title word alone.
+        if candidate_years is not None and not passes_experience_gate(candidate_years, title, desc):
+            continue
 
         if reject_senior and SENIOR_TERMS.search(title_lower):
             # allow through if description explicitly says junior/entry-friendly despite title
@@ -95,6 +110,7 @@ PROMPT_TEMPLATE = """You are TalentOS Active Base Resume Job Matcher, evaluating
 
 CANDIDATE PROFILE:
 - Base resume: {base_resume_name}
+- Years of experience (computed from resume dates): {years_experience}
 - Target roles: {target_roles}
 - Work authorization: {work_authorization}
 - Location preference: {location_preference} (open to relocation: {open_to_relocation})
@@ -105,13 +121,24 @@ JOBS TO EVALUATE (JSON array, each has id/title/company/location/description):
 {jobs_json}
 
 For each job, score 0-100 using this rubric:
-  title and role alignment                         0-30
-  demonstrated tools/skills/domain coverage         0-25
-  responsibilities and deliverables fit             0-20
-  seniority and experience fit                      0-10
+  title and role alignment                         0-25
+  demonstrated tools/skills/domain coverage         0-20
+  responsibilities and deliverables fit             0-15
+  seniority and experience fit                      0-20
   location/work authorization fit                   0-10
   posting freshness and application viability       0-5
   subtract explicit contradiction/duplicate risk     0-25
+
+SENIORITY IS A REAL GATE, NOT A TIEBREAKER. Compare the candidate's years above
+against what the posting actually needs (an explicit "X years" figure, or the
+level implied by a Senior/Lead/Principal/Staff/Director/Manager title if none
+is stated). A posting needing meaningfully more experience than the candidate
+has (roughly {tolerance_years}+ years short) is a hard disqualifier — score it
+below 75 regardless of how well the skills line up, because that gap is a real
+desk-reject with a real employer. A candidate close to the line (within about
+{tolerance_years} years) is a legitimate judgment call — score it on true fit,
+don't auto-reject a near-miss just because the title says "Senior."
+
 A hard-gate failure (explicit rule violation) cannot be rescued by a high keyword score.
 85-100 = TOP_MATCH; 75-84 = REVIEWABLE_MATCH; below 75 = omit entirely from output.
 Do not invent evidence. Search keywords are discovery signals, not proof — cite actual job text.
@@ -131,14 +158,17 @@ def score_batch(profile: dict, jobs: list[dict]) -> list[dict]:
         }
         for j in jobs
     ]
+    years_exp = profile.get("years_experience")
     prompt = PROMPT_TEMPLATE.format(
         base_resume_name=profile.get("base_resume_name"),
+        years_experience=f"{years_exp:.1f}" if years_exp is not None else "unknown",
         target_roles=profile.get("target_roles"),
         work_authorization=profile.get("work_authorization") or "unspecified",
         location_preference=profile.get("location_preference") or "unspecified",
         open_to_relocation="yes" if profile.get("open_to_relocation") else "unspecified",
         verified_skills=profile.get("verified_skills"),
         additional_rules=profile.get("additional_rules") or "none provided",
+        tolerance_years=TOLERANCE_YEARS,
         jobs_json=json.dumps(jobs_compact),
     )
 

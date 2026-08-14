@@ -11,6 +11,29 @@ _SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "schema.sqlit
 def _ensure_schema(conn):
     with open(_SCHEMA_PATH) as f:
         conn.executescript(f.read())
+    _migrate(conn)
+
+
+def _migrate(conn):
+    """
+    CREATE TABLE IF NOT EXISTS only creates a table that doesn't exist yet —
+    it does not add a column to one that already does, so a column added to
+    schema.sqlite.sql is invisible on every database that was created before
+    that change. location_gate shipped this way once already (present on
+    live databases, absent from the tracked schema, no migration recorded
+    anywhere) and was only caught by accident. Guarded ALTER TABLEs here are
+    what actually lands a schema change everywhere schema.sqlite.sql alone
+    cannot reach.
+    """
+    migrations = [
+        "ALTER TABLE resume_profiles ADD COLUMN location_gate TEXT",
+        "ALTER TABLE resume_profiles ADD COLUMN years_experience REAL",
+    ]
+    for stmt in migrations:
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 @contextmanager

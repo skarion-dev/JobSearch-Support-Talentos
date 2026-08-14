@@ -42,9 +42,14 @@ What actually matters here, in order:
      low figure is a sourcing-mix problem: it means volume is coming from a
      source that truncates descriptions, and those matches go to manual chasing
      instead of becoming applications.
-  6. Stale backlog (matches days old, never actioned) means the daily review
+  6. seniority_mismatch_rate_pct above a few percent means junior candidates are
+     scoring TOP_MATCH on Senior/Lead/Principal/Director postings they can't
+     realistically get — measured at 13% before a hard gate was added for it.
+     A nonzero rate after the gate shipped is stale pre-fix rows, not a new
+     bug, unless it keeps growing after a fresh match run.
+  7. Stale backlog (matches days old, never actioned) means the daily review
      is not happening.
-  7. Pipeline health is ALREADY DECIDED for you in pipeline_status, which is
+  8. Pipeline health is ALREADY DECIDED for you in pipeline_status, which is
      exactly one of "idle", "draining" or "stalled", with the reasoning in
      pipeline_status_explanation. Use it verbatim and never second-guess it from
      the raw counts:

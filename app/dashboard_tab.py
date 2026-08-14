@@ -24,6 +24,7 @@ import streamlit as st
 
 from app import db
 from app.config import NEON_DB_URL
+from app.experience import TOLERANCE_YEARS, required_years
 from app.quality import MIN_DESCRIPTION
 from app.talentos_state import fetch_logged_state, is_logged
 
@@ -164,6 +165,44 @@ def source_quality() -> pd.DataFrame:
         """).fetchall()])
 
 
+def seniority_quality() -> dict:
+    """
+    Gate-violation rate among current TOP_MATCH rows: candidate has computed
+    years_experience, the job implies a real requirement (explicit "X years"
+    or a Senior/Lead/Principal/Staff/Director/Manager title), and the gap
+    exceeds TOLERANCE_YEARS. Measured before this fix shipped: 81 of 611
+    TOP_MATCH rows (13%) had a senior title on a candidate with 1-2 years —
+    example, "Principal Network Engineer" scored 98 with the model's own
+    reasoning calling it "a perfect match for an experienced..." candidate.
+
+    prefilter() now blocks these before the LLM ever scores them, so this
+    should sit near zero for new matches. A rise here is a real regression,
+    not something to notice by hand three weeks later.
+    """
+    with db.get_conn() as conn:
+        rows = [dict(r) for r in conn.execute("""
+            SELECT p.years_experience, j.title, m.score, m.band
+            FROM resume_job_matches m
+            JOIN resume_profiles p ON p.id = m.resume_profile_id
+            JOIN keyword_jobs   j ON j.id = m.keyword_job_id
+            WHERE p.is_test_account = 0 AND m.band = 'TOP_MATCH'
+              AND p.years_experience IS NOT NULL
+        """).fetchall()]
+
+    violations = []
+    for r in rows:
+        req = required_years(r["title"], None)
+        if req is not None and (req - r["years_experience"]) > TOLERANCE_YEARS:
+            violations.append(r)
+
+    return {
+        "total_checked": len(rows),
+        "violations": len(violations),
+        "rate_pct": round(100 * len(violations) / len(rows), 1) if rows else 0.0,
+        "sample": violations[:10],
+    }
+
+
 def backlog() -> pd.DataFrame:
     """Matches never logged in Talentos, with age. 'Never logged' is checked
     against live Talentos state (any source), not just this tool's own pushes."""
@@ -228,6 +267,8 @@ def build_metrics(df: pd.DataFrame) -> dict:
     usable_total = int(sq["usable"].sum()) if not sq.empty else 0
     jobs_total = int(sq["jobs"].sum()) if not sq.empty else 0
 
+    seniority = seniority_quality()
+
     return {
         "total_unreviewed": int(len(df)),
         "candidates_with_backlog": int(by_cand.shape[0]),
@@ -254,6 +295,9 @@ def build_metrics(df: pd.DataFrame) -> dict:
         "source_quality": sq.to_dict("records") if not sq.empty else [],
         "corpus_usable": usable_total,
         "corpus_usable_pct": round(100 * usable_total / jobs_total, 1) if jobs_total else 0,
+        "seniority_mismatch_rate_pct": seniority["rate_pct"],
+        "seniority_mismatch_count": seniority["violations"],
+        "seniority_checked_count": seniority["total_checked"],
     }
 
 
@@ -509,6 +553,35 @@ def render():
                 "almost none of its volume can be pushed. The nightly cycle leads "
                 "with Apify for this reason."
             )
+
+    # ---- seniority match quality ----
+    st.divider()
+    st.markdown("##### Seniority match quality")
+    checked = metrics["seniority_checked_count"]
+    if checked == 0:
+        st.caption("No candidates with computed years_experience yet — run sync_resume_profiles.")
+    else:
+        rate = metrics["seniority_mismatch_rate_pct"]
+        s1, s2 = st.columns([1, 3])
+        with s1:
+            st.metric(
+                "Senior-role mismatches in TOP_MATCH", f"{rate}%",
+                delta=None if rate == 0 else f"{metrics['seniority_mismatch_count']} of {checked}",
+                delta_color="inverse",
+                help="Candidate's computed years fall meaningfully short of what the "
+                     "posting implies (explicit years figure, or a Senior/Lead/"
+                     "Principal/Staff/Director/Manager title), beyond the tolerance "
+                     "band. Measured at 13% before this gate existed.",
+            )
+        with s2:
+            if rate == 0:
+                st.success("No gate violations in current TOP_MATCH rows.")
+            else:
+                st.warning(
+                    f"{metrics['seniority_mismatch_count']} TOP_MATCH rows still look "
+                    "mismatched on seniority — likely pre-fix matches still in the "
+                    "table. Re-run scripts.match_resumes_to_jobs to refresh them."
+                )
 
     # ---- underserved ----
     if metrics["underserved_profiles"]:
