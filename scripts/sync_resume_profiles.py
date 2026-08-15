@@ -212,7 +212,17 @@ def main():
         )
 
     with db.get_conn() as conn:
-        conn.execute("DELETE FROM resume_profiles")
+        # UPSERT keyed on base_resume_id (already UNIQUE in schema), not
+        # DELETE-then-reinsert. A full delete hands every row a fresh
+        # AUTOINCREMENT id on the next insert; resume_job_matches.resume_profile_id
+        # still points at the old ids, and SQLite has foreign_keys off by
+        # default so nothing cascades or errors — every match just goes
+        # silently unreachable on the very next sync. Discovered 2026-08-15:
+        # all 3,809 existing matches (back to 2026-08-11) were orphaned this
+        # way by a single nightly run. Upserting preserves the id for any
+        # base_resume_id that persists across syncs (the normal case), so
+        # historical matches stay joinable.
+        kept_base_resume_ids = []
         for p in profiles:
             candidate = candidates_by_id.get(p["candidate_id"])
             resume = resumes_by_id.get(p["base_resume_id"])
@@ -244,6 +254,8 @@ def main():
             if loc_rule:
                 rules = f"{rules}\n\n{loc_rule}" if rules else loc_rule
 
+            base_resume_id = str(resume["id"])
+            kept_base_resume_ids.append(base_resume_id)
             conn.execute(
                 """
                 INSERT INTO resume_profiles
@@ -251,13 +263,33 @@ def main():
                      target_roles, work_authorization, visa_status, verified_skills,
                      location_preference, open_to_relocation, keywords, additional_rules,
                      review_status, generation_status, is_match_ready, is_test_account,
-                     location_gate, years_experience, years_experience_raw)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     location_gate, years_experience, years_experience_raw, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(base_resume_id) DO UPDATE SET
+                    candidate_id = excluded.candidate_id,
+                    candidate_name = excluded.candidate_name,
+                    base_resume_name = excluded.base_resume_name,
+                    target_roles = excluded.target_roles,
+                    work_authorization = excluded.work_authorization,
+                    visa_status = excluded.visa_status,
+                    verified_skills = excluded.verified_skills,
+                    location_preference = excluded.location_preference,
+                    open_to_relocation = excluded.open_to_relocation,
+                    keywords = excluded.keywords,
+                    additional_rules = excluded.additional_rules,
+                    review_status = excluded.review_status,
+                    generation_status = excluded.generation_status,
+                    is_match_ready = excluded.is_match_ready,
+                    is_test_account = excluded.is_test_account,
+                    location_gate = excluded.location_gate,
+                    years_experience = excluded.years_experience,
+                    years_experience_raw = excluded.years_experience_raw,
+                    synced_at = excluded.synced_at
                 """,
                 (
                     str(candidate["id"]),
                     candidate["name"],
-                    str(resume["id"]),
+                    base_resume_id,
                     resume["name"],
                     json.dumps(target_roles_from_resume(resume)),
                     candidate.get("work_authorization"),
@@ -276,6 +308,19 @@ def main():
                     _raw_years(candidate["name"], resume.get("content")),
                 ),
             )
+
+        # Drop profiles for resumes no longer in the upstream fetch (dropped
+        # candidates, archived resumes). resume_job_matches for these rows
+        # go orphaned same as before — unavoidable once the resume is gone
+        # upstream — but every resume that's still active keeps its id.
+        if kept_base_resume_ids:
+            placeholders = ",".join("?" for _ in kept_base_resume_ids)
+            conn.execute(
+                f"DELETE FROM resume_profiles WHERE base_resume_id NOT IN ({placeholders})",
+                kept_base_resume_ids,
+            )
+        else:
+            conn.execute("DELETE FROM resume_profiles")
 
     print("Synced to local resume_profiles table (private, gitignored).")
 
