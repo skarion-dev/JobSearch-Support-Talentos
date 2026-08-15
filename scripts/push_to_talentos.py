@@ -108,7 +108,8 @@ def load_matches(limit: int | None, min_score: int, posted_days: int,
     return out[:limit] if limit else out
 
 
-def load_matched_jobs_only(min_score: int = 0, d_from=None, d_to=None) -> list[dict]:
+def load_matched_jobs_only(min_score: int = 0, d_from=None, d_to=None,
+                           candidate: str | None = None) -> list[dict]:
     """
     Distinct jobs our local matcher paired with at least one candidate — one
     row per job regardless of how many candidates matched it. Feeds the
@@ -140,19 +141,28 @@ def load_matched_jobs_only(min_score: int = 0, d_from=None, d_to=None) -> list[d
     if d_to:
         sql += " AND date(j.scraped_at) <= date(?)"
         params.append(d_to.isoformat())
+    if candidate:
+        sql += " AND p.candidate_name = ?"
+        params.append(candidate)
     sql += " GROUP BY j.id ORDER BY best_score DESC"
     with db.get_conn() as conn:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
-def push_jobs_only(jobs: list[dict], commit: bool) -> tuple[dict, list[dict]]:
+def push_jobs_only(jobs: list[dict], commit: bool, tag: str | None = None) -> tuple[dict, list[dict]]:
     """
     Seed Talentos' jobs table with raw postings only — no target_jobs,
     applications, or AI workflow. Talentos' own matching pipeline then
     assigns candidates to these independently of this app's local matcher.
     Same four-pass dedupe as push() so nothing already in Talentos gets
     duplicated.
+
+    tag: overrides the jobs.updated_by label (defaults to SOURCE_LABEL) so a
+    targeted batch — e.g. a one-off search built for a single candidate — is
+    identifiable and queryable on its own, separately from the generic
+    Send Jobs to Talentos flow.
     """
+    updated_by = tag or SOURCE_LABEL
     with psycopg.connect(NEON_DB_URL) as conn:
         with conn.cursor() as cur:
             stats = defaultdict(int)
@@ -184,7 +194,7 @@ def push_jobs_only(jobs: list[dict], commit: bool) -> tuple[dict, list[dict]]:
                         j.get("source") or SOURCE_LABEL,
                         j["source_url"] or j["job_url"], j["apply_url"] or j["job_url"],
                         j["external_job_id"], j["posted_date"],
-                        j["description"], j["description"], j["salary"], SOURCE_LABEL,
+                        j["description"], j["description"], j["salary"], updated_by,
                     ),
                 )
                 stats["inserted"] += 1
