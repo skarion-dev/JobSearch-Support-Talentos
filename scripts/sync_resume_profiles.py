@@ -49,6 +49,7 @@ OPERATOR_APPROVES_ALL_NON_TEST = True
 # only advisory context for the model; this is what actually filters.
 LOCATION_GATES = {
     "Mir Najiur Rahman": "dmv_or_remote",
+    "Rayda Noor": "huntsville_or_remote",
 }
 
 LOCATION_RULES = {
@@ -58,6 +59,11 @@ LOCATION_RULES = {
         "Richmond, Arlington, Alexandria, Bethesda, Rockville, Fairfax) OR jobs that "
         "are fully remote / remote-US. Reject anything outside that radius that is "
         "not remote."
+    ),
+    "Rayda Noor": (
+        "LOCATION HARD GATE: only accept jobs within commuting distance of Huntsville, "
+        "AL (including Madison, Decatur, Athens) OR jobs that are fully remote / "
+        "remote-US. Reject anything outside that radius that is not remote."
     ),
 }
 

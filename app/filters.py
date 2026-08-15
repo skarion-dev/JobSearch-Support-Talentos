@@ -141,9 +141,28 @@ def in_dmv(location: str | None) -> bool:
     return any(city in loc for city in DMV_CITIES)
 
 
+# Huntsville, AL commute radius
+HUNTSVILLE_CITIES = (
+    "huntsville", "madison", "decatur", "athens", "hartselle", "harvest",
+    "meridianville", "new hope", "owens cross roads", "gurley", "toney",
+)
+
+
+def in_huntsville_area(location: str | None) -> bool:
+    if not location:
+        return False
+    loc = location.lower()
+    states = set(_STATE_TOKEN.findall(location))
+    if states and not (states & {"AL"}):
+        return False
+    return any(city in loc for city in HUNTSVILLE_CITIES)
+
+
 GATES = {
     # DMV commute radius, or fully remote
     "dmv_or_remote": lambda loc, title: in_dmv(loc) or is_remote(loc, title),
+    # Huntsville, AL commute radius, or fully remote
+    "huntsville_or_remote": lambda loc, title: in_huntsville_area(loc) or is_remote(loc, title),
 }
 
 
