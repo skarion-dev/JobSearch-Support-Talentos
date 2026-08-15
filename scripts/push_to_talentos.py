@@ -108,18 +108,22 @@ def load_matches(limit: int | None, min_score: int, posted_days: int,
     return out[:limit] if limit else out
 
 
-def load_matched_jobs_only(min_score: int = 0) -> list[dict]:
+def load_matched_jobs_only(min_score: int = 0, d_from=None, d_to=None) -> list[dict]:
     """
     Distinct jobs our local matcher paired with at least one candidate — one
     row per job regardless of how many candidates matched it. Feeds the
     "send jobs to Talentos" pipeline, which hands over raw postings only
     (see push_jobs_only) and leaves candidate selection to Talentos' own
     matching pipeline instead of this app's local LLM matcher.
+
+    d_from/d_to filter on scraped_at — the day THIS app ingested the job —
+    not posted_date (when the employer posted it), so an operator can review
+    and send one ingestion day at a time.
     """
     sql = f"""
         SELECT j.id AS local_job_id, j.title, j.company_name, j.location, j.description,
                j.job_url, j.source_url, j.apply_url, j.external_job_id, j.posted_date,
-               j.salary, j.source,
+               j.salary, j.source, j.scraped_at,
                max(m.score) AS best_score,
                count(DISTINCT p.candidate_id) AS candidate_count
         FROM resume_job_matches m
@@ -128,11 +132,17 @@ def load_matched_jobs_only(min_score: int = 0) -> list[dict]:
         WHERE p.is_test_account = 0
           AND length(coalesce(j.description,'')) >= {MIN_DESCRIPTION}
           AND m.score >= ?
-        GROUP BY j.id
-        ORDER BY best_score DESC
     """
+    params = [min_score]
+    if d_from:
+        sql += " AND date(j.scraped_at) >= date(?)"
+        params.append(d_from.isoformat())
+    if d_to:
+        sql += " AND date(j.scraped_at) <= date(?)"
+        params.append(d_to.isoformat())
+    sql += " GROUP BY j.id ORDER BY best_score DESC"
     with db.get_conn() as conn:
-        return [dict(r) for r in conn.execute(sql, (min_score,)).fetchall()]
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
 def push_jobs_only(jobs: list[dict], commit: bool) -> tuple[dict, list[dict]]:
