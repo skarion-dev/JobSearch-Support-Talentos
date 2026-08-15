@@ -108,6 +108,81 @@ def load_matches(limit: int | None, min_score: int, posted_days: int,
     return out[:limit] if limit else out
 
 
+def load_matched_jobs_only(min_score: int = 0) -> list[dict]:
+    """
+    Distinct jobs our local matcher paired with at least one candidate — one
+    row per job regardless of how many candidates matched it. Feeds the
+    "send jobs to Talentos" pipeline, which hands over raw postings only
+    (see push_jobs_only) and leaves candidate selection to Talentos' own
+    matching pipeline instead of this app's local LLM matcher.
+    """
+    sql = f"""
+        SELECT j.id AS local_job_id, j.title, j.company_name, j.location, j.description,
+               j.job_url, j.source_url, j.apply_url, j.external_job_id, j.posted_date,
+               j.salary, j.source,
+               max(m.score) AS best_score,
+               count(DISTINCT p.candidate_id) AS candidate_count
+        FROM resume_job_matches m
+        JOIN resume_profiles p ON p.id = m.resume_profile_id
+        JOIN keyword_jobs   j ON j.id = m.keyword_job_id
+        WHERE p.is_test_account = 0
+          AND length(coalesce(j.description,'')) >= {MIN_DESCRIPTION}
+          AND m.score >= ?
+        GROUP BY j.id
+        ORDER BY best_score DESC
+    """
+    with db.get_conn() as conn:
+        return [dict(r) for r in conn.execute(sql, (min_score,)).fetchall()]
+
+
+def push_jobs_only(jobs: list[dict], commit: bool) -> tuple[dict, list[dict]]:
+    """
+    Seed Talentos' jobs table with raw postings only — no target_jobs,
+    applications, or AI workflow. Talentos' own matching pipeline then
+    assigns candidates to these independently of this app's local matcher.
+    Same four-pass dedupe as push() so nothing already in Talentos gets
+    duplicated.
+    """
+    with psycopg.connect(NEON_DB_URL) as conn:
+        with conn.cursor() as cur:
+            stats = defaultdict(int)
+            plan = []
+            for j in jobs:
+                if find_existing_job(cur, j):
+                    stats["already_in_talentos"] += 1
+                    continue
+                stats["new"] += 1
+                plan.append(j)
+
+            log.info("--- JOBS-ONLY PLAN ---")
+            for k in sorted(stats):
+                log.info(f"  {k}: {stats[k]}")
+
+            if not commit:
+                return stats, plan
+
+            for j in plan:
+                cur.execute(
+                    """
+                    INSERT INTO jobs (title, company, location, source, source_url, apply_url,
+                                      external_job_id, posted_at, description_text, raw_description,
+                                      salary_range, is_active, updated_by)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+                    """,
+                    (
+                        j["title"], j["company_name"], j["location"],
+                        j.get("source") or SOURCE_LABEL,
+                        j["source_url"] or j["job_url"], j["apply_url"] or j["job_url"],
+                        j["external_job_id"], j["posted_date"],
+                        j["description"], j["description"], j["salary"], SOURCE_LABEL,
+                    ),
+                )
+                stats["inserted"] += 1
+            conn.commit()
+            log.info(f"--- COMMITTED {stats['inserted']} jobs (no applications created) ---")
+            return stats, plan
+
+
 def find_existing_job(cur, m: dict) -> str | None:
     """Four-pass dedupe against Talentos jobs; the DB has no unique key here."""
     if m["external_job_id"]:
