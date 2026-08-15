@@ -67,6 +67,18 @@ LOCATION_RULES = {
     ),
 }
 
+# Operator directive (2026-08-15): best-conversion strategy, not a fit
+# ceiling — Rayda has 5.5 raw / 7.5 effective years, comfortably clears
+# these, but roles asking 5+ years draw far deeper competition. Capping the
+# STATED requirement at 3 years targets postings she overqualifies for
+# easily, where she reads as an obviously strong pick rather than one of many
+# borderline-senior applicants. Matches _rule_max_years()'s exact phrase in
+# app/agents/matcher_agent.py, which is a real code gate — desc mentions of
+# "5+ years" etc. get hard-rejected in prefilter(), not just deprioritized.
+MAX_YEARS_RULES = {
+    "Rayda Noor": "Do not apply to roles requiring more than 3 years of experience.",
+}
+
 # NOTE: candidates.status is 'active' for every row, including dropped and
 # placed people — it does not gate anything. The real pipeline gate is
 # candidates.pipeline_stage, which is what the Talentos UI shows in its STAGE
@@ -259,6 +271,9 @@ def main():
             loc_rule = LOCATION_RULES.get(candidate["name"])
             if loc_rule:
                 rules = f"{rules}\n\n{loc_rule}" if rules else loc_rule
+            years_rule = MAX_YEARS_RULES.get(candidate["name"])
+            if years_rule:
+                rules = f"{rules}\n\n{years_rule}" if rules else years_rule
 
             base_resume_id = str(resume["id"])
             kept_base_resume_ids.append(base_resume_id)
