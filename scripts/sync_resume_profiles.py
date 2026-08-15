@@ -67,17 +67,12 @@ LOCATION_RULES = {
     ),
 }
 
-# Operator directive (2026-08-15): best-conversion strategy, not a fit
-# ceiling — Rayda has 5.5 raw / 7.5 effective years, comfortably clears
-# these, but roles asking 5+ years draw far deeper competition. Capping the
-# STATED requirement at 3 years targets postings she overqualifies for
-# easily, where she reads as an obviously strong pick rather than one of many
-# borderline-senior applicants. Matches _rule_max_years()'s exact phrase in
-# app/agents/matcher_agent.py, which is a real code gate — desc mentions of
-# "5+ years" etc. get hard-rejected in prefilter(), not just deprioritized.
-MAX_YEARS_RULES = {
-    "Rayda Noor": "Do not apply to roles requiring more than 3 years of experience.",
-}
+# Operator directive (2026-08-15): tried a 3-year stated-requirement cap for
+# best-conversion targeting, then reverted the same day to open the net back
+# up for volume. Kept as an empty dict (not deleted) since MAX_YEARS_RULES is
+# a real, working mechanism — _rule_max_years() in matcher_agent.py — that
+# may be worth revisiting per-candidate later.
+MAX_YEARS_RULES = {}
 
 # NOTE: candidates.status is 'active' for every row, including dropped and
 # placed people — it does not gate anything. The real pipeline gate is
