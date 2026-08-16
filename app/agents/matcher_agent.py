@@ -12,6 +12,7 @@ from app.config import LLM_CONFIG
 from app.experience import TOLERANCE_YEARS, passes_experience_gate
 from app.filters import (
     clearance_eligible,
+    is_company_excluded,
     is_intern_or_trainee,
     passes_location_gate,
     requires_clearance,
@@ -82,6 +83,7 @@ def prefilter(profile: dict, jobs: list[dict]) -> list[dict]:
         raw_years = effective_years
     can_hold_clearance = clearance_eligible(
         profile.get("work_authorization"), profile.get("visa_status"))
+    candidate_name = profile.get("candidate_name")
 
     jobs = _dedupe(jobs)
 
@@ -89,6 +91,9 @@ def prefilter(profile: dict, jobs: list[dict]) -> list[dict]:
     for job in jobs:
         # Location is a hard gate enforced in code, not left to the model
         if gate and not passes_location_gate(gate, job.get("location"), job.get("title")):
+            continue
+
+        if is_company_excluded(candidate_name, job.get("company_name")):
             continue
         title = (job.get("title") or "")
         desc = (job.get("description") or "")

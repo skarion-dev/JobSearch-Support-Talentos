@@ -7,6 +7,8 @@ does not corrupt the others; the run is recorded either way.
   1 sync      pull active candidates + approved base resumes from Talentos
   2 keywords  gpt-5.6-luna picks tonight's search terms from measured ROI
   3 ingest    Apify first (full descriptions), Adzuna second (discovery)
+  3b dedicated ingest for candidates whose field the shared rotation never
+              touches (DEDICATED_CANDIDATES) -- their own hardcoded keywords
   4 enrich    recover readable links, pull full descriptions
   5 match     deepseek-v4-flash scores jobs per base resume, 100-wide
   6 export    write the manual-chase sheet for what cannot be automated
@@ -67,6 +69,36 @@ APIFY_PLAN = [
     ("linkedin",   400,      1000,      50),
     ("indeed",     120,      400,       1),
     ("google",     60,       400,       6),
+]
+
+# Candidates whose real vocabulary shares nothing with the shared nightly
+# rotation (data/roi_keywords.csv is tuned to the CAD/GIS/network-engineering
+# roster) get their own hardcoded search, run independently every night —
+# otherwise the shared strategist-picked keywords never surface anything in
+# their field at all. Discovered 2026-08-15/16: a dedicated one-off search
+# for Rayda Noor (accounting/FP&A) found dozens of real matches the standard
+# nightly cycle had found zero of. Keyed by candidate name; add more people
+# here as needed.
+DEDICATED_CANDIDATES = {
+    "Rayda Noor": [
+        "Staff Accountant", "Senior Staff Accountant", "Accountant", "Senior Accountant",
+        "Financial Analyst", "Senior Financial Analyst", "FP&A Analyst", "FP&A Manager",
+        "Budget Analyst", "Cost Analyst", "Accounting Manager", "General Ledger Accountant",
+        "Remote Accountant", "Remote Financial Analyst",
+        "Controller", "Assistant Controller", "Revenue Accountant", "Treasury Analyst",
+        "Financial Reporting Analyst", "Payroll Accountant", "Accounts Payable Specialist",
+        "Accounts Receivable Specialist", "Bookkeeper", "Fund Accountant", "Grant Accountant",
+        "Corporate Accountant", "Tax Accountant", "Internal Auditor", "Financial Planning Manager",
+    ],
+}
+
+# Same shape as APIFY_PLAN, just run once per dedicated candidate instead of
+# once for the shared rotation.
+DEDICATED_APIFY_PLAN = [
+    #  source      max_items  chunk
+    ("linkedin",   1000,      50),
+    ("indeed",     400,       1),
+    ("google",     400,       6),
 ]
 
 
@@ -169,6 +201,44 @@ def s3_ingest(keywords: list[str], apify: bool, adzuna: bool):
     added = _job_count() - before
     log.info(f"ingested {added} new jobs")
     _log_source_yield()
+    return added
+
+
+@stage("3b dedicated candidate ingest")
+def s3b_dedicated_ingest():
+    """
+    Runs each DEDICATED_CANDIDATES entry's own keyword list through Apify,
+    independent of the shared rotation. Company exclusions (app.filters.
+    COMPANY_EXCLUSIONS) are applied here too, on top of the match-time gate
+    in prefilter() -- filtering at ingest keeps excluded postings out of the
+    local corpus entirely rather than just out of that one candidate's
+    matches.
+    """
+    from app.agents.aggregators.apify_jobs import run_actor
+    from app.filters import filter_us_jobs, is_company_excluded
+    from scripts.apify_ingest import store as store_jobs
+
+    before = _job_count()
+    for candidate, keywords in DEDICATED_CANDIDATES.items():
+        slug = candidate.lower().replace(" ", "_")
+        for source, max_items, chunk in DEDICATED_APIFY_PLAN:
+            for i in range(0, len(keywords), chunk):
+                batch = keywords[i : i + chunk]
+                try:
+                    rows = run_actor(source, batch, max_items=max_items, days=WINDOW_DAYS)
+                except Exception as e:
+                    log.warning(f"dedicated {candidate}/{source} {batch} failed: {e}")
+                    continue
+                us_rows = filter_us_jobs(rows)
+                kept = [r for r in us_rows
+                        if not is_company_excluded(candidate, r.get("company_name"))]
+                excluded = len(us_rows) - len(kept)
+                new, dupe = store_jobs(kept, keyword_label=f"apify:{source}:dedicated:{slug}")
+                log.info(f"  {candidate}/{source} {batch}: {len(rows)} rows -> "
+                          f"{len(us_rows)} US -> {excluded} excluded -> {new} new, {dupe} dupe")
+
+    added = _job_count() - before
+    log.info(f"dedicated ingest: {added} new jobs across {len(DEDICATED_CANDIDATES)} candidate(s)")
     return added
 
 
@@ -298,6 +368,8 @@ def main(n_keywords: int, workers: int, skip_ingest: bool,
     keywords = s2_keywords(n_keywords) or []
     if not skip_ingest and keywords:
         s3_ingest(keywords, apify, adzuna)
+    if not skip_ingest and DEDICATED_CANDIDATES:
+        s3b_dedicated_ingest()
     s4_enrich()
     s5_match(workers)
     s6_export()

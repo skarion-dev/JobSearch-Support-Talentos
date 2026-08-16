@@ -171,3 +171,30 @@ def passes_location_gate(gate: str | None, location: str | None, title: str | No
         return True
     fn = GATES.get(gate)
     return fn(location, title) if fn else True
+
+
+# --- per-candidate company exclusions ---------------------------------------
+# Operator directive (2026-08-16): Rayda should never be matched to a bank —
+# candidate-specific, not global, since another candidate (e.g. a data-center
+# or network engineer) may well want bank employers. Enforced in prefilter(),
+# same hard-gate pattern as location/years/clearance — not left to the LLM.
+BANK_RE = re.compile(
+    r"\b(bank|banc|credit union|savings\s*(bank|institution)?|trust\s*(co|company)?|"
+    r"federal\s*credit|usaa|capital one|jpmorgan|chase|wells fargo|citibank|citigroup|"
+    r"\bciti\b|us bank|u\.s\. bank|pnc\b|truist|td bank|fifth third|regions bank|"
+    r"keybank|hsbc|santander|ally financial|goldman sachs|morgan stanley|"
+    r"american express|discover financial|synchrony|barclays|deutsche bank|"
+    r"charles schwab|fidelity investments|credit suisse|bny mellon|state street|"
+    r"northern trust|suntrust|bb&t|huntington bank|comerica|zions|m&t bank|"
+    r"first republic|navy federal)\b",
+    re.IGNORECASE,
+)
+
+COMPANY_EXCLUSIONS = {
+    "Rayda Noor": BANK_RE,
+}
+
+
+def is_company_excluded(candidate_name: str | None, company: str | None) -> bool:
+    pattern = COMPANY_EXCLUSIONS.get(candidate_name)
+    return bool(pattern and company and pattern.search(company))
