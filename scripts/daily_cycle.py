@@ -80,6 +80,9 @@ APIFY_PLAN = [
 # nightly cycle had found zero of. Keyed by candidate name; add more people
 # here as needed.
 DEDICATED_CANDIDATES = {
+    # Operator directive (2026-08-16): shift weight toward analyst-track
+    # titles specifically, not just accounting generally — the 14 new
+    # entries below are hers, added to (not replacing) the original set.
     "Rayda Noor": [
         "Staff Accountant", "Senior Staff Accountant", "Accountant", "Senior Accountant",
         "Financial Analyst", "Senior Financial Analyst", "FP&A Analyst", "FP&A Manager",
@@ -89,6 +92,12 @@ DEDICATED_CANDIDATES = {
         "Financial Reporting Analyst", "Payroll Accountant", "Accounts Payable Specialist",
         "Accounts Receivable Specialist", "Bookkeeper", "Fund Accountant", "Grant Accountant",
         "Corporate Accountant", "Tax Accountant", "Internal Auditor", "Financial Planning Manager",
+        # Analyst-track focus, added 2026-08-16
+        "Financial Analyst I", "Financial Planning Analyst", "Business Finance Analyst",
+        "Commercial Finance Analyst", "Revenue Analyst", "Pricing Analyst",
+        "Finance Operations Analyst", "Financial Data Analyst", "Business Analyst (Finance)",
+        "Finance Systems Analyst", "Reporting Analyst", "BI Analyst (Finance)",
+        "Operations Analyst", "Finance Analyst",
     ],
 }
 
