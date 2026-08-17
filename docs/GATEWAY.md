@@ -55,19 +55,23 @@ subscription":
 
 ## Reasoning effort
 
-`gpt-5.6-luna` always runs at `reasoning_effort: "high"` — forced in
+The keyword strategist's models (`kimi-k2.7-code`, and its fallback
+`minimax-m3`) always run at `reasoning_effort: "high"` — forced in
 `gateway/config.py`'s `FORCED_REASONING`, applied in
 `gateway/main.py::chat_completions` regardless of what the caller sends. If
 a caller passes a different value it is overridden and logged, not silently
 dropped:
 
 ```
-gpt-5.6-luna: overriding requested reasoning_effort='low' with 'high'
+kimi-k2.7-code: overriding requested reasoning_effort='low' with 'high'
 ```
 
-Luna runs once a night (`app/agents/keyword_strategist.py`) to allocate the
-whole night's API budget — the one call in this system where the strongest
-available reasoning is worth paying for every time.
+The strategist runs once a night (`app/agents/keyword_strategist.py`) to
+allocate the whole night's API budget — the one call in this system where
+the strongest available reasoning is worth paying for every time. Its
+`response_format=json_object` output is not guaranteed free of a `<think>`
+preamble even in JSON mode (confirmed with minimax-m3) — `_extract_json()`
+strips it before parsing.
 
 ## Everything else routes here too
 
@@ -88,8 +92,8 @@ No agent file changes — `matcher_agent.py`, `description_agent.py`,
 their client from `OPENCODE_API_KEY`/`OPENCODE_BASE_URL` (directly or via
 `LLM_CONFIG`/`CEO_LLM_CONFIG`), so flipping the two `GATEWAY_*` vars in
 `.env` is the entire migration. Model names sent (`deepseek-v4-flash`,
-`deepseek-v4-pro`, `gpt-5.6-luna`) already match the gateway's allowlist
-exactly.
+`deepseek-v4-pro`, `kimi-k2.7-code`, `minimax-m3`) already match the
+gateway's allowlist exactly.
 
 This ordering matters: the nightly cycle running 100-wide through the
 gateway is the load test that proves rotation and limits work under real

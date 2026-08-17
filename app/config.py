@@ -32,7 +32,8 @@ SCRAPER_MODEL = os.getenv("OPENCODE_SCRAPER_MODEL", "deepseek-v4-flash")
 CEO_MODEL = os.getenv("OPENCODE_CEO_MODEL", "deepseek-v4-pro")
 # Keyword strategist runs once per night; a stronger model is affordable for a
 # single high-leverage decision that allocates the whole day's API budget.
-STRATEGIST_MODEL = os.getenv("OPENCODE_STRATEGIST_MODEL", "gpt-5.6-luna")
+STRATEGIST_MODEL = os.getenv("OPENCODE_STRATEGIST_MODEL", "kimi-k2.7-code")
+STRATEGIST_FALLBACK_MODEL = os.getenv("OPENCODE_STRATEGIST_FALLBACK_MODEL", "minimax-m3")
 
 LOCAL_DB_PATH = os.getenv("LOCAL_DB_PATH", "data/jobsearch.db")
 NEON_DB_URL = os.getenv("NEON_DB_URL", "")

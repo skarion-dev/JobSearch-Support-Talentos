@@ -67,7 +67,7 @@ app/
   db.py                 Local SQLite access
   filters.py            USA filter and regional gates (enforced in code)
   agents/
-    keyword_strategist.py  gpt-5.6-luna, picks nightly keywords
+    keyword_strategist.py  kimi-k2.7-code (fallback minimax-m3), picks nightly keywords
     matcher_agent.py       deepseek-v4-flash, scores job vs resume
     description_agent.py   deepseek-v4-flash, extracts full descriptions
     analyst_agent.py       deepseek-v4-flash, narrates the dashboard

@@ -79,11 +79,13 @@ ALLOWED_MODELS = {
     "qwen3.5-plus", "qwen3.6-plus", "qwen3.7-max", "qwen3.7-plus", "qwen3.8-max",
 }
 
-# gpt-5.6-luna always runs at reasoningEffort "high" — this is the one nightly
-# decision (keyword selection) where being wrong wastes the whole night's API
-# budget, so the strongest available reasoning is affordable for it. Forced
-# here, in code, so no caller can silently downgrade it by omission.
-FORCED_REASONING = {"gpt-5.6-luna": "high"}
+# The keyword strategist's model always runs at reasoningEffort "high" — this
+# is the one nightly decision (keyword selection) where being wrong wastes
+# the whole night's API budget, so the strongest available reasoning is
+# affordable for it. Forced here, in code, so no caller can silently
+# downgrade it by omission. Both the primary and its fallback are covered,
+# since either may end up carrying the decision on a given night.
+FORCED_REASONING = {"kimi-k2.7-code": "high", "minimax-m3": "high"}
 
 GATEWAY_DB_PATH = os.getenv("GATEWAY_DB_PATH", os.path.join(
     os.path.dirname(__file__), "gateway.db"))

@@ -37,7 +37,7 @@ re-runnable; a failure in one does not corrupt the others.
         NOTE: candidates.status is 'active' for every row including dropped
         and placed people — pipeline_stage is the real gate.
 
-        STAGE 2  keyword_strategist            [gpt-5.6-luna]
+        STAGE 2  keyword_strategist            [kimi-k2.7-code]
         Choose the top 500 search keywords for tonight. Sees measured ROI
         history, the active roster's disciplines, and coverage gaps. Output
         is validated against the profile vocabulary before use.
@@ -107,7 +107,7 @@ exact freshness is enforced locally on `posted_date`.
 
 | Agent | Model | Runs | Job |
 |---|---|---|---|
-| **Keyword strategist** | `gpt-5.6-luna` | 1x/night | Pick tonight's 500 keywords from ROI history + roster |
+| **Keyword strategist** | `kimi-k2.7-code` (fallback `minimax-m3`) | 1x/night | Pick tonight's 500 keywords from ROI history + roster |
 | **Matcher** | `deepseek-v4-flash` | ~200 batches/night, 100-wide | Score jobs against a base resume |
 | **Description enricher** | `deepseek-v4-flash` | per unenriched match | Extract full description + evidence-backed posted date |
 | **CEO agent** | `deepseek-v4-pro` | on demand | Conversational front door in the UI |

@@ -5,7 +5,7 @@ Seven stages, in order. Each is independently re-runnable and a failure in one
 does not corrupt the others; the run is recorded either way.
 
   1 sync      pull active candidates + approved base resumes from Talentos
-  2 keywords  gpt-5.6-luna picks tonight's search terms from measured ROI
+  2 keywords  kimi-k2.7-code picks tonight's search terms from measured ROI
   3 ingest    Apify first (full descriptions), Adzuna second (discovery)
   3b dedicated ingest for candidates whose field the shared rotation never
               touches (DEDICATED_CANDIDATES) -- their own hardcoded keywords
