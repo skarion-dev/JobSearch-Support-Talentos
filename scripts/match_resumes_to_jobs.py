@@ -38,7 +38,8 @@ def load_profiles(include_test: bool = False, only_ready: bool = True) -> list[d
         return [dict(r) for r in conn.execute(query).fetchall()]
 
 
-def load_recent_jobs(days: int, posted_days: int | None = None) -> list[dict]:
+def load_recent_jobs(days: int, posted_days: int | None = None,
+                     since: str | None = None) -> list[dict]:
     """
     days         how recently we captured the job (ingest recency)
     posted_days  how recently the EMPLOYER posted it (public freshness)
@@ -50,9 +51,13 @@ def load_recent_jobs(days: int, posted_days: int | None = None) -> list[dict]:
     sql = """
         SELECT id, title, company_name, location, description, posted_date
         FROM keyword_jobs
-        WHERE scraped_at >= datetime('now', ?)
+        WHERE 1=1
     """
-    params = [f"-{days} days"]
+    if since:
+        sql += " AND scraped_at > datetime(?)"
+        params = [since]
+    else:
+        params = [f"-{days} days"]
     if posted_days:
         sql += " AND posted_date IS NOT NULL AND date(posted_date) >= date('now', ?)"
         params.append(f"-{posted_days} days")
@@ -184,7 +189,8 @@ def resolve_cross_candidate_contention() -> int:
 
 
 def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: bool,
-         pool_size: int, posted_days: int | None = None):
+         pool_size: int, posted_days: int | None = None, skip_existing: bool = False,
+         since: str | None = None):
     profiles = load_profiles(include_test=include_test)
 
     if skip_done:
@@ -200,15 +206,28 @@ def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: boo
         log.info("Nothing to do.")
         return
 
-    jobs = load_recent_jobs(days, posted_days=posted_days)
+    jobs = load_recent_jobs(days, posted_days=posted_days, since=since)
     run_id = f"run_{int(time.time())}"
     freshness = f", posted within {posted_days}d" if posted_days else ""
     log.info(f"{len(profiles)} profiles x {len(jobs)} jobs{freshness} | run_id={run_id}")
 
+    existing_by_profile = defaultdict(set)
+    if skip_existing:
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT resume_profile_id, keyword_job_id FROM resume_job_matches"
+            ).fetchall()
+        for row in rows:
+            existing_by_profile[row[0]].add(row[1])
+        log.info("--skip-existing: excluding previously matched profile/job pairs")
+
     # Flatten to (profile, batch) work units so concurrency isn't profile-bound
     units = []
     for p in profiles:
-        candidates = prefilter(p, jobs)[:pool_size]
+        candidates = prefilter(p, jobs)
+        if skip_existing:
+            candidates = [j for j in candidates if j["id"] not in existing_by_profile[p["id"]]]
+        candidates = candidates[:pool_size]
         for i in range(0, len(candidates), BATCH_SIZE):
             units.append((p, candidates[i : i + BATCH_SIZE]))
 
@@ -248,6 +267,7 @@ def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: boo
 
     elapsed = time.time() - t0
     log.info(f"Done in {elapsed:.0f}s. {len(units)} batches, run_id={run_id}")
+    return run_id
 
 
 if __name__ == "__main__":
@@ -258,6 +278,10 @@ if __name__ == "__main__":
     parser.add_argument("--pool-size", type=int, default=250, help="Jobs per profile after prefilter")
     parser.add_argument("--include-test", action="store_true")
     parser.add_argument("--skip-done", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Exclude profile/job pairs already present in resume_job_matches")
+    parser.add_argument("--since", default=None,
+                        help="Only jobs scraped after this UTC timestamp (YYYY-MM-DD HH:MM:SS)")
     parser.add_argument("--posted-days", type=int, default=None,
                         help="Only jobs the employer posted within N days (excludes unknown dates)")
     args = parser.parse_args()
@@ -265,4 +289,5 @@ if __name__ == "__main__":
         top_n=args.top, days=args.days, workers=args.workers,
         include_test=args.include_test, skip_done=args.skip_done,
         pool_size=args.pool_size, posted_days=args.posted_days,
+        skip_existing=args.skip_existing, since=args.since,
     )

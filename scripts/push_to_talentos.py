@@ -61,7 +61,8 @@ def norm(s: str | None) -> str:
 
 def load_matches(limit: int | None, min_score: int, posted_days: int,
                  per_candidate_cap: int | None = 50,
-                 candidate: str | None = None) -> list[dict]:
+                 candidate: str | None = None,
+                 run_id: str | None = None) -> list[dict]:
     """Local matches, best-resume-per-candidate/job already resolved."""
     sql = """
         SELECT m.score, m.band, m.reason,
@@ -77,6 +78,9 @@ def load_matches(limit: int | None, min_score: int, posted_days: int,
           AND date(j.posted_date) >= date('now', ?)
     """
     params = [min_score, f"-{posted_days} days"]
+    if run_id:
+        sql += " AND m.run_id = ?"
+        params.append(run_id)
     if candidate:
         sql += " AND p.candidate_name = ?"
         params.append(candidate)
@@ -452,13 +456,15 @@ if __name__ == "__main__":
     ap.add_argument("--per-candidate", type=int, default=50,
                     help="Max new applications per candidate this run (masterprompt cap)")
     ap.add_argument("--candidate", help="Push one candidate only (phased rollout)")
+    ap.add_argument("--run-id", help="Push only matches created by this matcher run")
     ap.add_argument("--commit", action="store_true", help="Actually write to Talentos")
     ap.add_argument("--stagger", type=float, default=None,
                     help="Seconds between each application's commit, instead of "
                          "one commit at the end (e.g. --stagger 5)")
     a = ap.parse_args()
     ms = load_matches(a.limit, a.min_score, a.posted_days,
-                      per_candidate_cap=a.per_candidate, candidate=a.candidate)
+                      per_candidate_cap=a.per_candidate, candidate=a.candidate,
+                      run_id=a.run_id)
     log.info(
         f"{len(ms)} candidate/job pairs selected "
         f"(score>={a.min_score}, posted<={a.posted_days}d, max {a.per_candidate}/candidate)"
