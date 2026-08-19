@@ -18,9 +18,9 @@ st.title("Talentos JobSearch Support")
 st.caption("Multi-agent job scraper — CEO agent + scraper fleet, powered by OpenCode Go (deepseek-v4-flash / deepseek-v4-pro)")
 
 (tab_review, tab_send_jobs, tab_chase, tab_archive, tab_dash, tab_chat,
- tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches) = st.tabs(
+ tab_scrape, tab_readiness, tab_jobs, tab_keywords, tab_matches, tab_rules) = st.tabs(
     ["Review & Assign", "Send Jobs to Talentos", "Manual Chase", "Export Archive", "Dashboard", "CEO Chat",
-     "Scrape Control", "Readiness", "Jobs", "Keywords", "Resume Matches"]
+     "Scrape Control", "Readiness", "Jobs", "Keywords", "Resume Matches", "Rules & Handoffs"]
 )
 
 with tab_review:
@@ -315,3 +315,7 @@ with tab_matches:
                 st.write(f"**Matched terms:** {', '.join(matched_terms)}")
             st.write("**Job description:**")
             st.write(detail["description"] or "No description captured.")
+
+with tab_rules:
+    from app.rules_handoff_tab import render as render_rules_handoff
+    render_rules_handoff()
