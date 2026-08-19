@@ -35,7 +35,12 @@ try {
         exit 0
     }
 
-    git fetch --prune origin master 2>&1 | ForEach-Object { Log $_ }
+    # Git writes normal fetch progress to stderr. Capture it as text rather
+    # than letting PowerShell's Stop error mode mistake it for a failure.
+    $fetchOutput = @(& git fetch --prune origin master 2>&1)
+    $fetchExit = $LASTEXITCODE
+    $fetchOutput | ForEach-Object { Log $_ }
+    if ($fetchExit -ne 0) { throw "git fetch failed with exit code $fetchExit" }
     $head = (git rev-parse HEAD).Trim()
     $remote = (git rev-parse origin/master).Trim()
     if ($head -eq $remote) {
@@ -65,8 +70,10 @@ try {
     }
 
     $previous = $head
-    git merge --ff-only origin/master 2>&1 | ForEach-Object { Log $_ }
-    if ($LASTEXITCODE -ne 0) { throw "fast-forward failed" }
+    $mergeOutput = @(& git merge --ff-only origin/master 2>&1)
+    $mergeExit = $LASTEXITCODE
+    $mergeOutput | ForEach-Object { Log $_ }
+    if ($mergeExit -ne 0) { throw "fast-forward failed with exit code $mergeExit" }
 
     # Catch syntax/import-level failures before accepting the deployment.
     python -m compileall -q app scripts
