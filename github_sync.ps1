@@ -35,11 +35,16 @@ try {
         exit 0
     }
 
-    # Git writes normal fetch progress to stderr. Capture it as text rather
-    # than letting PowerShell's Stop error mode mistake it for a failure.
-    $fetchOutput = @(& git fetch --prune origin master 2>&1)
+    # Git writes normal fetch progress to stderr. Use cmd redirection so
+    # PowerShell's Stop error mode cannot mistake that progress for failure.
+    $fetchCapture = Join-Path $LogDir "github_fetch.tmp"
+    $fetchCommand = 'git fetch --prune origin master > "' + $fetchCapture + '" 2>&1'
+    & cmd.exe /d /c $fetchCommand
     $fetchExit = $LASTEXITCODE
-    $fetchOutput | ForEach-Object { Log $_ }
+    if (Test-Path $fetchCapture) {
+        Get-Content $fetchCapture | ForEach-Object { Log $_ }
+        Remove-Item -LiteralPath $fetchCapture -Force -ErrorAction SilentlyContinue
+    }
     if ($fetchExit -ne 0) { throw "git fetch failed with exit code $fetchExit" }
     $head = (git rev-parse HEAD).Trim()
     $remote = (git rev-parse origin/master).Trim()
@@ -70,9 +75,14 @@ try {
     }
 
     $previous = $head
-    $mergeOutput = @(& git merge --ff-only origin/master 2>&1)
+    $mergeCapture = Join-Path $LogDir "github_merge.tmp"
+    $mergeCommand = 'git merge --ff-only origin/master > "' + $mergeCapture + '" 2>&1'
+    & cmd.exe /d /c $mergeCommand
     $mergeExit = $LASTEXITCODE
-    $mergeOutput | ForEach-Object { Log $_ }
+    if (Test-Path $mergeCapture) {
+        Get-Content $mergeCapture | ForEach-Object { Log $_ }
+        Remove-Item -LiteralPath $mergeCapture -Force -ErrorAction SilentlyContinue
+    }
     if ($mergeExit -ne 0) { throw "fast-forward failed with exit code $mergeExit" }
 
     # Catch syntax/import-level failures before accepting the deployment.
