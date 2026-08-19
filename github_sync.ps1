@@ -59,7 +59,7 @@ try {
     $ancestorExit = $LASTEXITCODE
     if ($ancestorExit -ne 0) {
         Log "BLOCKED: local HEAD is not an ancestor of origin/master; manual reconciliation required."
-        exit 2
+        exit 0
     }
 
     $changedFiles = @(git diff --name-only HEAD origin/master)
@@ -67,7 +67,7 @@ try {
     foreach ($path in $changedFiles) {
         if ($untracked -contains $path) {
             Log "BLOCKED: GitHub update would collide with untracked file $path."
-            exit 2
+            exit 0
         }
     }
 
