@@ -54,8 +54,10 @@ try {
     }
 
     # Refuse to discard local production commits or merge automatically.
-    git merge-base --is-ancestor HEAD origin/master
-    if ($LASTEXITCODE -ne 0) {
+    $ancestorCommand = 'git merge-base --is-ancestor HEAD origin/master > nul 2>&1'
+    & cmd.exe /d /c $ancestorCommand
+    $ancestorExit = $LASTEXITCODE
+    if ($ancestorExit -ne 0) {
         Log "BLOCKED: local HEAD is not an ancestor of origin/master; manual reconciliation required."
         exit 2
     }
