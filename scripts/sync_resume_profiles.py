@@ -50,6 +50,7 @@ OPERATOR_APPROVES_ALL_NON_TEST = True
 LOCATION_GATES = {
     "Mir Najiur Rahman": "dmv_or_remote",
     "Rayda Noor": "huntsville_or_remote",
+    "Hija Tovi": "plano_or_remote_20mi",
 }
 
 LOCATION_RULES = {
@@ -64,6 +65,12 @@ LOCATION_RULES = {
         "LOCATION HARD GATE: only accept jobs within commuting distance of Huntsville, "
         "AL (including Madison, Decatur, Athens) OR jobs that are fully remote / "
         "remote-US. Reject anything outside that radius that is not remote."
+    ),
+    "Hija Tovi": (
+        "LOCATION HARD GATE: only accept fully remote US roles or roles with an "
+        "explicit job location within approximately 20 miles of Plano, TX. "
+        "Do not treat a generic Dallas/Fort Worth label as within 20 miles "
+        "without a qualifying city or ZIP. This is Hija-only."
     ),
 }
 

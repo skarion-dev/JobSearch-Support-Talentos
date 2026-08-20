@@ -27,15 +27,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("match_resumes")
 
 
-def load_profiles(include_test: bool = False, only_ready: bool = True) -> list[dict]:
+def load_profiles(include_test: bool = False, only_ready: bool = True,
+                  candidate_name: str | None = None) -> list[dict]:
     query = "SELECT * FROM resume_profiles WHERE 1=1"
+    params = []
     if not include_test:
         query += " AND is_test_account = 0"
     if only_ready:
         query += " AND is_match_ready = 1"
+    if candidate_name:
+        query += " AND lower(candidate_name) = lower(?)"
+        params.append(candidate_name)
     query += " ORDER BY candidate_name, base_resume_name"
     with db.get_conn() as conn:
-        return [dict(r) for r in conn.execute(query).fetchall()]
+        return [dict(r) for r in conn.execute(query, params).fetchall()]
 
 
 def load_recent_jobs(days: int, posted_days: int | None = None,
@@ -57,6 +62,7 @@ def load_recent_jobs(days: int, posted_days: int | None = None,
         sql += " AND scraped_at > datetime(?)"
         params = [since]
     else:
+        sql += " AND scraped_at >= datetime('now', ?)"
         params = [f"-{days} days"]
     if posted_days:
         sql += " AND posted_date IS NOT NULL AND date(posted_date) >= date('now', ?)"
@@ -190,8 +196,8 @@ def resolve_cross_candidate_contention() -> int:
 
 def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: bool,
          pool_size: int, posted_days: int | None = None, skip_existing: bool = False,
-         since: str | None = None):
-    profiles = load_profiles(include_test=include_test)
+         since: str | None = None, candidate_name: str | None = None):
+    profiles = load_profiles(include_test=include_test, candidate_name=candidate_name)
 
     if skip_done:
         with db.get_conn() as conn:
@@ -256,12 +262,15 @@ def main(top_n: int, days: int, workers: int, include_test: bool, skip_done: boo
         trim_to_top_n(p["id"], top_n)
         log.info(f"{p['candidate_name']} / {p['base_resume_name']}: {min(done_counts[p['id']], top_n)} kept")
 
-    collapsed = collapse_within_candidate()
+    # A candidate-scoped run is report-only for that candidate. Do not let the
+    # global duplicate/contention cleanup delete or reassign another
+    # candidate's historical matches while refreshing one profile.
+    collapsed = 0 if candidate_name else collapse_within_candidate()
     if collapsed:
         log.info(f"collapsed {collapsed} duplicate rows where one candidate matched "
                  f"the same job under more than one of their own resume files")
 
-    contested = resolve_cross_candidate_contention()
+    contested = 0 if candidate_name else resolve_cross_candidate_contention()
     if contested:
         log.info(f"resolved {contested} cross-candidate claims — one candidate per job")
 
@@ -284,10 +293,13 @@ if __name__ == "__main__":
                         help="Only jobs scraped after this UTC timestamp (YYYY-MM-DD HH:MM:SS)")
     parser.add_argument("--posted-days", type=int, default=None,
                         help="Only jobs the employer posted within N days (excludes unknown dates)")
+    parser.add_argument("--candidate", default=None,
+                        help="Match only one candidate name (case-insensitive)")
     args = parser.parse_args()
     main(
         top_n=args.top, days=args.days, workers=args.workers,
         include_test=args.include_test, skip_done=args.skip_done,
         pool_size=args.pool_size, posted_days=args.posted_days,
         skip_existing=args.skip_existing, since=args.since,
+        candidate_name=args.candidate,
     )

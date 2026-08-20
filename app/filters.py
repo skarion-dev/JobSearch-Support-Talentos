@@ -158,11 +158,36 @@ def in_huntsville_area(location: str | None) -> bool:
     return any(city in loc for city in HUNTSVILLE_CITIES)
 
 
+# Plano, TX commute-radius gate. Job feeds usually provide a city/state string
+# rather than coordinates, so this is intentionally conservative: accept Plano
+# and the surrounding cities that are normally within roughly 20 miles, while
+# rejecting a generic Dallas/Fort Worth label that cannot prove the radius.
+PLANO_20MI_CITIES = (
+    "plano", "allen", "addison", "carrollton", "frisco", "garland",
+    "lewisville", "little elm", "mckinney", "murphy", "parker",
+    "prosper", "richardson", "sachse", "the colony", "wylie", "fairview",
+)
+
+
+def in_plano_20mi_area(location: str | None) -> bool:
+    if not location:
+        return False
+    loc = location.lower()
+    states = set(_STATE_TOKEN.findall(location))
+    # A state-qualified non-Texas location cannot be within Plano's radius.
+    if states and "TX" not in states:
+        return False
+    return any(re.search(r"\b" + re.escape(city) + r"\b", loc)
+               for city in PLANO_20MI_CITIES)
+
+
 GATES = {
     # DMV commute radius, or fully remote
     "dmv_or_remote": lambda loc, title: in_dmv(loc) or is_remote(loc, title),
     # Huntsville, AL commute radius, or fully remote
     "huntsville_or_remote": lambda loc, title: in_huntsville_area(loc) or is_remote(loc, title),
+    # Plano, TX commute radius, or fully remote
+    "plano_or_remote_20mi": lambda loc, title: in_plano_20mi_area(loc) or is_remote(loc, title),
 }
 
 
